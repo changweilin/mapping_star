@@ -12,6 +12,14 @@ const matchAny = (
   values: string[]
 ) => values.includes(tags[key]);
 
+const leadingNumber = (value: string | undefined) => {
+  const match = value?.trim().match(/^-?\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : NaN;
+};
+
+const hasMoreThanSixLevels = (tags: Record<string, string>) =>
+  leadingNumber(tags["building:levels"]) > 6;
+
 export const POI_CATEGORIES: PoiCategory[] = [
   {
     id: "religion",
@@ -36,13 +44,30 @@ export const POI_CATEGORIES: PoiCategory[] = [
       has(tags, "religion")
   },
   {
-    id: "shop",
-    label: "商店",
-    description: "一般店鋪與零售設施",
+    id: "convenience",
+    label: "便利商店",
+    description: "便利商店、小型日用品店與雜貨店",
     color: "#d8842f",
-    broad: true,
-    overpassFilters: ['["shop"]'],
-    matches: (tags) => has(tags, "shop")
+    overpassFilters: ['["shop"~"^(convenience|variety_store)$"]'],
+    matches: (tags) => matchAny(tags, "shop", ["convenience", "variety_store"])
+  },
+  {
+    id: "market",
+    label: "賣場",
+    description: "超市、量販店、百貨商場、購物中心與市場",
+    color: "#a45b2a",
+    overpassFilters: [
+      '["shop"~"^(supermarket|department_store|mall|wholesale|general)$"]',
+      '["amenity"="marketplace"]'
+    ],
+    matches: (tags) =>
+      matchAny(tags, "shop", [
+        "supermarket",
+        "department_store",
+        "mall",
+        "wholesale",
+        "general"
+      ]) || tags.amenity === "marketplace"
   },
   {
     id: "cafe",
@@ -74,11 +99,60 @@ export const POI_CATEGORIES: PoiCategory[] = [
   {
     id: "building",
     label: "建築",
-    description: "OSM 有標記的建築輪廓或建物中心",
+    description: "OSM 有標記且 building:levels 高於 6 的高樓建築",
     color: "#5c6470",
     broad: true,
-    overpassFilters: ['["building"]'],
-    matches: (tags) => has(tags, "building")
+    overpassFilters: [
+      '["building"]["building:levels"](if:number(t["building:levels"]) > 6)'
+    ],
+    matches: (tags) => has(tags, "building") && hasMoreThanSixLevels(tags)
+  },
+  {
+    id: "government",
+    label: "政府",
+    description: "各級政府機關、行政單位、警消、法院與公務設施",
+    color: "#55779f",
+    overpassFilters: [
+      '["office"="government"]',
+      '["government"]',
+      '["amenity"~"^(townhall|courthouse|police|fire_station|post_office|ranger_station|public_building)$"]',
+      '["building"~"^(government|civic|public)$"]'
+    ],
+    matches: (tags) =>
+      tags.office === "government" ||
+      has(tags, "government") ||
+      matchAny(tags, "amenity", [
+        "townhall",
+        "courthouse",
+        "police",
+        "fire_station",
+        "post_office",
+        "ranger_station",
+        "public_building"
+      ]) ||
+      matchAny(tags, "building", ["government", "civic", "public"])
+  },
+  {
+    id: "station",
+    label: "車站",
+    description: "鐵路、捷運、輕軌、纜車與公車轉運車站",
+    color: "#4169a8",
+    overpassFilters: [
+      '["railway"~"^(station|halt|tram_stop|subway_entrance)$"]',
+      '["public_transport"="station"]',
+      '["amenity"="bus_station"]',
+      '["aerialway"="station"]'
+    ],
+    matches: (tags) =>
+      matchAny(tags, "railway", [
+        "station",
+        "halt",
+        "tram_stop",
+        "subway_entrance"
+      ]) ||
+      tags.public_transport === "station" ||
+      tags.amenity === "bus_station" ||
+      tags.aerialway === "station"
   },
   {
     id: "attraction",
@@ -116,7 +190,7 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "peak",
-    label: "山頂",
+    label: "山峰",
     description: "山峰、鞍部與自然地形高點",
     color: "#7b5f36",
     overpassFilters: ['["natural"~"^(peak|saddle|volcano)$"]'],
@@ -140,15 +214,7 @@ export const POI_CATEGORIES: PoiCategory[] = [
   }
 ];
 
-export const DEFAULT_CATEGORY_IDS = [
-  "religion",
-  "cafe",
-  "restaurant",
-  "attraction",
-  "park",
-  "peak",
-  "water"
-];
+export const DEFAULT_CATEGORY_IDS = ["religion"];
 
 export const categoryById = (id: string) =>
   POI_CATEGORIES.find((category) => category.id === id);

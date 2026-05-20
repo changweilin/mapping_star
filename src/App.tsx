@@ -11,7 +11,7 @@ import {
   Star,
   Trash2
 } from "lucide-react";
-import { DEFAULT_CATEGORY_IDS, POI_CATEGORIES } from "./data/categories";
+import { POI_CATEGORIES } from "./data/categories";
 import { exportGpx, exportKml, splitFavorites } from "./lib/exporters";
 import {
   makePoiFavorite,
@@ -24,8 +24,13 @@ import {
   formatDistance,
   normalizeDegrees
 } from "./lib/geo";
-import { fetchPois, overpassResultLimit } from "./lib/overpass";
+import { fetchPoisDetailed, overpassResultLimit } from "./lib/overpass";
 import { searchPlace } from "./lib/placeSearch";
+import {
+  DEFAULT_APP_SETTINGS,
+  loadSettings,
+  saveSettings
+} from "./lib/settings";
 import { solveStarFromPois, starLineSequences } from "./lib/solver";
 import type { FavoriteItem, LatLng, Poi, StarMode, StarResult } from "./types";
 
@@ -92,17 +97,30 @@ function App() {
   const poiLayerRef = useRef<L.LayerGroup | null>(null);
   const starLayerRef = useRef<L.LayerGroup | null>(null);
   const sectorLayerRef = useRef<L.LayerGroup | null>(null);
+  const [initialSettings] = useState(() =>
+    typeof window === "undefined" ? DEFAULT_APP_SETTINGS : loadSettings()
+  );
 
   const [center, setCenter] = useState<LatLng>(DEFAULT_CENTER);
   const [searchText, setSearchText] = useState("");
-  const [radiusKm, setRadiusKm] = useState(100);
-  const [starMode, setStarMode] = useState<StarMode>(5);
-  const [angleToleranceDeg, setAngleToleranceDeg] = useState(36);
-  const [candidatesPerSlot, setCandidatesPerSlot] = useState(8);
-  const [rotationStepDeg, setRotationStepDeg] = useState(3);
-  const [showSectors, setShowSectors] = useState(true);
+  const [radiusKm, setRadiusKm] = useState(initialSettings.radiusKm);
+  const [starMode, setStarMode] = useState<StarMode>(
+    initialSettings.starMode
+  );
+  const [angleToleranceDeg, setAngleToleranceDeg] = useState(
+    initialSettings.angleToleranceDeg
+  );
+  const [candidatesPerSlot, setCandidatesPerSlot] = useState(
+    initialSettings.candidatesPerSlot
+  );
+  const [rotationStepDeg, setRotationStepDeg] = useState(
+    initialSettings.rotationStepDeg
+  );
+  const [showSectors, setShowSectors] = useState(
+    initialSettings.showSectors
+  );
   const [selectedCategoryIds, setSelectedCategoryIds] =
-    useState<string[]>(DEFAULT_CATEGORY_IDS);
+    useState<string[]>(initialSettings.selectedCategoryIds);
   const [pois, setPois] = useState<Poi[]>([]);
   const [results, setResults] = useState<StarResult[]>([]);
   const [selectedResultIndex, setSelectedResultIndex] = useState(0);
@@ -187,6 +205,26 @@ function App() {
   useEffect(() => {
     saveFavorites(favorites);
   }, [favorites]);
+
+  useEffect(() => {
+    saveSettings({
+      radiusKm,
+      starMode,
+      angleToleranceDeg: effectiveAngleToleranceDeg,
+      candidatesPerSlot,
+      rotationStepDeg,
+      showSectors,
+      selectedCategoryIds
+    });
+  }, [
+    candidatesPerSlot,
+    effectiveAngleToleranceDeg,
+    radiusKm,
+    rotationStepDeg,
+    selectedCategoryIds,
+    showSectors,
+    starMode
+  ]);
 
   useEffect(() => {
     const group = centerLayerRef.current;
@@ -321,7 +359,7 @@ function App() {
 
     if (nextResults.length === 0) {
       setStatus(`找到 ${nextPois.length} 個候選點，但沒有可用的星形組合。`);
-      return;
+      return nextResults;
     }
 
     setStatus(
@@ -331,6 +369,8 @@ function App() {
         0
       )}°，每角 ${candidatesPerSlot} 點。`
     );
+
+    return nextResults;
   };
 
   const handleSearchPlace = async () => {
@@ -383,12 +423,30 @@ function App() {
     setError("");
     setSelectedPoi(null);
     try {
-      const nextPois = await fetchPois(center, radiusMeters, selectedCategories);
+      const { pois: nextPois, warnings } = await fetchPoisDetailed(
+        center,
+        radiusMeters,
+        selectedCategories
+      );
       setPois(nextPois);
-      runSolver(nextPois);
+      const nextResults = runSolver(nextPois);
+      const notes = [...warnings];
+
       if (nextPois.length >= overpassResultLimit) {
-        setStatus(
+        notes.push(
           `已讀取前 ${overpassResultLimit} 筆資料；若想更精準，請縮小半徑或減少類別。`
+        );
+      }
+
+      if (notes.length > 0) {
+        setStatus(
+          `${notes.join(" ")} 已取得 ${nextPois.length} 筆資料${
+            nextResults.length > 0
+              ? `，仍找到 ${nextResults.length} 組${
+                  starMode === 5 ? "五芒星" : "六芒星"
+                }候選。`
+              : "，但尚未找到符合條件的星形。"
+          }`
         );
       }
     } catch (fetchError) {
@@ -518,9 +576,9 @@ function App() {
             <span>搜尋半徑</span>
             <input
               type="range"
-              min="5"
-              max="100"
-              step="5"
+              min="1"
+              max="30"
+              step="1"
               value={radiusKm}
               onChange={(event) => setRadiusKm(Number(event.target.value))}
             />

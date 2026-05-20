@@ -27,12 +27,27 @@ interface OverpassResponse {
   elements: OverpassElement[];
 }
 
+export interface FetchPoisResult {
+  pois: Poi[];
+  warnings: string[];
+}
+
 class OverpassHttpError extends Error {
   constructor(
     readonly endpoint: string,
     readonly status: number
   ) {
     super(`HTTP ${status}`);
+  }
+}
+
+class OverpassQueryError extends Error {
+  constructor(readonly failures: string[]) {
+    super(
+      `Overpass 查詢暫時失敗（${failures.join(
+        "；"
+      )}）。請稍後重試，或縮小半徑、減少類別。`
+    );
   }
 }
 
@@ -191,34 +206,72 @@ const fetchOverpassElements = async (query: string) => {
     }
   }
 
-  throw new Error(
-    `Overpass 查詢暫時失敗（${failures.join(
-      "；"
-    )}）。請稍後重試，或縮小半徑、減少類別。`
-  );
+  throw new OverpassQueryError(failures);
 };
 
-export const fetchPois = async (
+const formatCategoryFailure = (category: PoiCategory, error: unknown) => {
+  const details =
+    error instanceof OverpassQueryError
+      ? error.failures.join("、")
+      : error instanceof Error
+        ? error.message
+        : "未知錯誤";
+
+  return `${category.label}：${details}`;
+};
+
+export const fetchPoisDetailed = async (
   center: LatLng,
   radiusMeters: number,
   categories: PoiCategory[]
-) => {
+): Promise<FetchPoisResult> => {
   if (categories.length === 0) {
     throw new Error("請至少選擇一種目標類別。");
   }
 
   const elements: OverpassElement[] = [];
+  const failures: string[] = [];
 
   for (const category of categories) {
     const query = buildOverpassQuery(center, radiusMeters, [category]);
-    elements.push(...(await fetchOverpassElements(query)));
+    try {
+      elements.push(...(await fetchOverpassElements(query)));
+    } catch (error) {
+      failures.push(formatCategoryFailure(category, error));
+    }
 
     if (categories.length > 1) {
       await sleep(CATEGORY_QUERY_PAUSE_MS);
     }
   }
 
-  return parseOverpassElements(elements, center, categories);
+  if (failures.length === categories.length) {
+    throw new Error(
+      `Overpass 查詢暫時失敗（${failures.join(
+        "；"
+      )}）。請稍後重試，或縮小半徑、減少類別。`
+    );
+  }
+
+  const warnings =
+    failures.length > 0
+      ? [
+          `部分類別查詢失敗，已使用成功取得的資料繼續：${failures.join(
+            "；"
+          )}。`
+        ]
+      : [];
+
+  return {
+    pois: parseOverpassElements(elements, center, categories),
+    warnings
+  };
 };
+
+export const fetchPois = async (
+  center: LatLng,
+  radiusMeters: number,
+  categories: PoiCategory[]
+) => (await fetchPoisDetailed(center, radiusMeters, categories)).pois;
 
 export const overpassResultLimit = MAX_OVERPASS_RESULTS;
