@@ -1,0 +1,92 @@
+import { describe, expect, it } from "vitest";
+import { POI_CATEGORIES } from "../data/categories";
+import { destinationPoint } from "../lib/geo";
+import { solveStarFromPois, starLineSequences } from "../lib/solver";
+import type { Poi } from "../types";
+
+const center = { lat: 25.033964, lng: 121.564468 };
+const category = POI_CATEGORIES[0];
+
+const makePoi = (index: number, bearing: number): Poi => {
+  const point = destinationPoint(center, 10000, bearing);
+  return {
+    id: `node/${index}`,
+    osmType: "node",
+    osmId: index,
+    name: `Point ${index}`,
+    lat: point.lat,
+    lng: point.lng,
+    categoryId: category.id,
+    categoryLabel: category.label,
+    categoryColor: category.color,
+    tags: {},
+    distanceMeters: 0,
+    bearingDeg: 0
+  };
+};
+
+describe("star solver", () => {
+  it("uses the expected line sequences", () => {
+    expect(starLineSequences(5)).toEqual([[0, 2, 4, 1, 3, 0]]);
+    expect(starLineSequences(6)).toEqual([
+      [0, 2, 4, 0],
+      [1, 3, 5, 1]
+    ]);
+  });
+
+  it("finds a five-point star from evenly distributed points", () => {
+    const pois = [0, 72, 144, 216, 288].map((bearing, index) =>
+      makePoi(index, bearing)
+    );
+
+    const results = solveStarFromPois(pois, {
+      mode: 5,
+      center,
+      radiusMeters: 15000
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].points.map((point) => point.id)).toHaveLength(5);
+    expect(new Set(results[0].points.map((point) => point.id)).size).toBe(5);
+    expect(results[0].angleErrorDeg).toBeLessThan(1);
+  });
+
+  it("honors one candidate per slot", () => {
+    const pois = [0, 72, 144, 216, 288].map((bearing, index) =>
+      makePoi(index, bearing)
+    );
+
+    const results = solveStarFromPois(pois, {
+      mode: 5,
+      center,
+      radiusMeters: 15000,
+      candidatesPerSlot: 1
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].points).toHaveLength(5);
+  });
+
+  it("does not let five-point angle tolerance overlap neighboring slots", () => {
+    const pois = [0, 6, 60, 132, 204].map((bearing, index) =>
+      makePoi(index, bearing)
+    );
+
+    expect(
+      solveStarFromPois(pois, {
+        mode: 5,
+        center,
+        radiusMeters: 15000
+      })
+    ).toHaveLength(0);
+
+    const results = solveStarFromPois(pois, {
+      mode: 5,
+      center,
+      radiusMeters: 15000,
+      angleToleranceDeg: 45
+    });
+
+    expect(results).toHaveLength(0);
+  });
+});
