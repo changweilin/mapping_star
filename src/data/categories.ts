@@ -17,8 +17,107 @@ const leadingNumber = (value: string | undefined) => {
   return match ? Number(match[0]) : NaN;
 };
 
-const hasMoreThanSixLevels = (tags: Record<string, string>) =>
-  leadingNumber(tags["building:levels"]) > 6;
+const HIGH_RISE_MIN_LEVELS = 16;
+
+const RELIGIOUS_BUILDINGS = [
+  "temple",
+  "church",
+  "chapel",
+  "shrine",
+  "mosque",
+  "synagogue"
+];
+
+const PUBLIC_AMENITIES = [
+  "townhall",
+  "courthouse",
+  "police",
+  "fire_station",
+  "post_office",
+  "ranger_station",
+  "public_building",
+  "community_centre",
+  "library"
+];
+
+const PUBLIC_BUILDINGS = [
+  "government",
+  "civic",
+  "public",
+  "fire_station",
+  "police",
+  "post_office",
+  "courthouse"
+];
+
+const TRAFFIC_RAILWAY = ["station", "halt", "tram_stop", "subway_entrance"];
+const TRAFFIC_AMENITIES = ["bus_station", "ferry_terminal"];
+const TRAFFIC_BUILDINGS = [
+  "train_station",
+  "transportation",
+  "parking",
+  "garage",
+  "garages"
+];
+
+const MEDICAL_AMENITIES = ["hospital", "clinic", "doctors", "dentist"];
+const MEDICAL_HEALTHCARE = [
+  "hospital",
+  "clinic",
+  "doctor",
+  "doctors",
+  "dentist",
+  "medical_centre"
+];
+const MEDICAL_BUILDINGS = ["hospital", "clinic"];
+
+const EDUCATION_AMENITIES = [
+  "school",
+  "university",
+  "college",
+  "kindergarten",
+  "research_institute"
+];
+const EDUCATION_BUILDINGS = ["school", "university", "college", "kindergarten"];
+const EDUCATION_OFFICES = ["educational_institution", "research"];
+
+const hasAtLeastLevels = (tags: Record<string, string>, minLevels: number) =>
+  leadingNumber(tags["building:levels"]) >= minLevels;
+
+const matchesReligion = (tags: Record<string, string>) =>
+  matchAny(tags, "amenity", ["place_of_worship", "monastery"]) ||
+  matchAny(tags, "building", RELIGIOUS_BUILDINGS) ||
+  has(tags, "religion");
+
+const matchesPublicBuilding = (tags: Record<string, string>) =>
+  tags.office === "government" ||
+  has(tags, "government") ||
+  matchAny(tags, "amenity", PUBLIC_AMENITIES) ||
+  matchAny(tags, "building", PUBLIC_BUILDINGS);
+
+const matchesTraffic = (tags: Record<string, string>) =>
+  matchAny(tags, "railway", TRAFFIC_RAILWAY) ||
+  tags.public_transport === "station" ||
+  matchAny(tags, "amenity", TRAFFIC_AMENITIES) ||
+  tags.aerialway === "station" ||
+  matchAny(tags, "building", TRAFFIC_BUILDINGS);
+
+const matchesMedical = (tags: Record<string, string>) =>
+  matchAny(tags, "amenity", MEDICAL_AMENITIES) ||
+  matchAny(tags, "healthcare", MEDICAL_HEALTHCARE) ||
+  matchAny(tags, "building", MEDICAL_BUILDINGS);
+
+const matchesEducation = (tags: Record<string, string>) =>
+  matchAny(tags, "amenity", EDUCATION_AMENITIES) ||
+  matchAny(tags, "building", EDUCATION_BUILDINGS) ||
+  matchAny(tags, "office", EDUCATION_OFFICES);
+
+const matchesInstitutionalTarget = (tags: Record<string, string>) =>
+  matchesReligion(tags) ||
+  matchesPublicBuilding(tags) ||
+  matchesTraffic(tags) ||
+  matchesMedical(tags) ||
+  matchesEducation(tags);
 
 export const POI_CATEGORIES: PoiCategory[] = [
   {
@@ -28,20 +127,9 @@ export const POI_CATEGORIES: PoiCategory[] = [
     color: "#b94b7a",
     overpassFilters: [
       '["amenity"~"^(place_of_worship|monastery)$"]',
-      '["building"~"^(temple|church|chapel|shrine|mosque|synagogue)$"]',
-      '["religion"]'
+      '["building"~"^(temple|church|chapel|shrine|mosque|synagogue)$"]'
     ],
-    matches: (tags) =>
-      matchAny(tags, "amenity", ["place_of_worship", "monastery"]) ||
-      matchAny(tags, "building", [
-        "temple",
-        "church",
-        "chapel",
-        "shrine",
-        "mosque",
-        "synagogue"
-      ]) ||
-      has(tags, "religion")
+    matches: matchesReligion
   },
   {
     id: "convenience",
@@ -97,62 +185,69 @@ export const POI_CATEGORIES: PoiCategory[] = [
       matchAny(tags, "amenity", ["restaurant", "fast_food", "food_court"])
   },
   {
-    id: "building",
-    label: "建築",
-    description: "OSM 有標記且 building:levels 高於 6 的高樓建築",
-    color: "#5c6470",
-    broad: true,
-    overpassFilters: [
-      '["building"]["building:levels"](if:number(t["building:levels"]) > 6)'
-    ],
-    matches: (tags) => has(tags, "building") && hasMoreThanSixLevels(tags)
-  },
-  {
     id: "government",
-    label: "政府",
-    description: "各級政府機關、行政單位、警消、法院與公務設施",
+    label: "公共建築",
+    description: "政府機關、行政單位、警消、法院、圖書館與公共設施",
     color: "#55779f",
     overpassFilters: [
       '["office"="government"]',
       '["government"]',
-      '["amenity"~"^(townhall|courthouse|police|fire_station|post_office|ranger_station|public_building)$"]',
-      '["building"~"^(government|civic|public)$"]'
+      '["amenity"~"^(townhall|courthouse|police|fire_station|post_office|ranger_station|public_building|community_centre|library)$"]',
+      '["building"~"^(government|civic|public|fire_station|police|post_office|courthouse)$"]'
     ],
-    matches: (tags) =>
-      tags.office === "government" ||
-      has(tags, "government") ||
-      matchAny(tags, "amenity", [
-        "townhall",
-        "courthouse",
-        "police",
-        "fire_station",
-        "post_office",
-        "ranger_station",
-        "public_building"
-      ]) ||
-      matchAny(tags, "building", ["government", "civic", "public"])
+    matches: matchesPublicBuilding
   },
   {
     id: "station",
-    label: "車站",
-    description: "鐵路、捷運、輕軌、纜車與公車轉運車站",
+    label: "交通",
+    description: "鐵路、捷運、輕軌、纜車、公車轉運站與交通建築",
     color: "#4169a8",
     overpassFilters: [
       '["railway"~"^(station|halt|tram_stop|subway_entrance)$"]',
       '["public_transport"="station"]',
-      '["amenity"="bus_station"]',
-      '["aerialway"="station"]'
+      '["amenity"~"^(bus_station|ferry_terminal)$"]',
+      '["aerialway"="station"]',
+      '["building"~"^(train_station|transportation|parking|garage|garages)$"]'
+    ],
+    matches: matchesTraffic
+  },
+  {
+    id: "medical",
+    label: "醫療建築",
+    description: "醫院、診所、牙醫與主要醫療服務建築",
+    color: "#b94d58",
+    overpassFilters: [
+      '["amenity"~"^(hospital|clinic|doctors|dentist)$"]',
+      '["healthcare"~"^(hospital|clinic|doctor|doctors|dentist|medical_centre)$"]',
+      '["building"~"^(hospital|clinic)$"]'
+    ],
+    matches: matchesMedical
+  },
+  {
+    id: "education",
+    label: "學校/學術",
+    description: "學校、大學、幼兒園、研究機構與教育單位",
+    color: "#6a62ad",
+    overpassFilters: [
+      '["amenity"~"^(school|university|college|kindergarten|research_institute)$"]',
+      '["building"~"^(school|university|college|kindergarten)$"]',
+      '["office"~"^(educational_institution|research)$"]'
+    ],
+    matches: matchesEducation
+  },
+  {
+    id: "building",
+    label: "商辦/高樓",
+    description: `${HIGH_RISE_MIN_LEVELS} 層以上，且排除宗教、公共、交通、醫療與學校類目標`,
+    color: "#5c6470",
+    broad: true,
+    overpassFilters: [
+      `["building"]["building:levels"](if:number(t["building:levels"]) >= ${HIGH_RISE_MIN_LEVELS})`
     ],
     matches: (tags) =>
-      matchAny(tags, "railway", [
-        "station",
-        "halt",
-        "tram_stop",
-        "subway_entrance"
-      ]) ||
-      tags.public_transport === "station" ||
-      tags.amenity === "bus_station" ||
-      tags.aerialway === "station"
+      has(tags, "building") &&
+      hasAtLeastLevels(tags, HIGH_RISE_MIN_LEVELS) &&
+      !matchesInstitutionalTarget(tags)
   },
   {
     id: "attraction",

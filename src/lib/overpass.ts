@@ -10,6 +10,7 @@ const MAX_OVERPASS_RESULTS = 1400;
 const OVERPASS_REQUEST_TIMEOUT_MS = 45000;
 const CATEGORY_QUERY_PAUSE_MS = 150;
 const TRANSIENT_OVERPASS_STATUS = new Set([408, 429, 500, 502, 503, 504]);
+const OVERPASS_ELEMENT_TYPES = ["node", "way", "relation"] as const;
 
 interface OverpassElement {
   type: "node" | "way" | "relation";
@@ -29,6 +30,11 @@ interface OverpassResponse {
 
 export interface FetchPoisResult {
   pois: Poi[];
+  warnings: string[];
+}
+
+interface FetchCategoryElementsResult {
+  elements: OverpassElement[];
   warnings: string[];
 }
 
@@ -64,19 +70,17 @@ export const categoryForTags = (
   categories: PoiCategory[] = POI_CATEGORIES
 ) => categories.find((category) => category.matches(tags));
 
-export const buildOverpassQuery = (
+const buildOverpassQueryForFilters = (
   center: LatLng,
   radiusMeters: number,
-  categories: PoiCategory[]
+  filters: string[]
 ) => {
   const radius = Math.round(radiusMeters);
   const lat = center.lat.toFixed(6);
   const lng = center.lng.toFixed(6);
-  const statements = categories.flatMap((category) =>
-    category.overpassFilters.flatMap((filter) =>
-      (["node", "way", "relation"] as const).map(
-        (type) => `${type}(around:${radius},${lat},${lng})${filter};`
-      )
+  const statements = filters.flatMap((filter) =>
+    OVERPASS_ELEMENT_TYPES.map(
+      (type) => `${type}(around:${radius},${lat},${lng})${filter};`
     )
   );
 
@@ -86,6 +90,17 @@ ${statements.map((statement) => `  ${statement}`).join("\n")}
 );
 out center ${MAX_OVERPASS_RESULTS};`;
 };
+
+export const buildOverpassQuery = (
+  center: LatLng,
+  radiusMeters: number,
+  categories: PoiCategory[]
+) =>
+  buildOverpassQueryForFilters(
+    center,
+    radiusMeters,
+    categories.flatMap((category) => category.overpassFilters)
+  );
 
 export const parseOverpassElements = (
   elements: OverpassElement[],
@@ -190,6 +205,13 @@ const formatOverpassError = (error: unknown) => {
   return error instanceof Error ? error.message : "未知錯誤";
 };
 
+const overpassFailureMessages = (error: unknown) =>
+  error instanceof OverpassQueryError
+    ? error.failures
+    : [error instanceof Error ? error.message : "未知錯誤"];
+
+const uniqueMessages = (messages: string[]) => [...new Set(messages)];
+
 const fetchOverpassElements = async (query: string) => {
   const failures: string[] = [];
 
@@ -207,6 +229,71 @@ const fetchOverpassElements = async (query: string) => {
   }
 
   throw new OverpassQueryError(failures);
+};
+
+const fetchOverpassElementsForFilters = (
+  center: LatLng,
+  radiusMeters: number,
+  filters: string[]
+) =>
+  fetchOverpassElements(
+    buildOverpassQueryForFilters(center, radiusMeters, filters)
+  );
+
+const fetchCategoryElements = async (
+  center: LatLng,
+  radiusMeters: number,
+  category: PoiCategory
+): Promise<FetchCategoryElementsResult> => {
+  try {
+    return {
+      elements: await fetchOverpassElementsForFilters(
+        center,
+        radiusMeters,
+        category.overpassFilters
+      ),
+      warnings: []
+    };
+  } catch (primaryError) {
+    if (category.overpassFilters.length <= 1) {
+      throw primaryError;
+    }
+
+    const elements: OverpassElement[] = [];
+    const failures: string[] = [];
+    let failedFilters = 0;
+
+    for (const filter of category.overpassFilters) {
+      try {
+        elements.push(
+          ...(await fetchOverpassElementsForFilters(center, radiusMeters, [
+            filter
+          ]))
+        );
+      } catch (filterError) {
+        failedFilters += 1;
+        failures.push(...overpassFailureMessages(filterError));
+      }
+
+      await sleep(CATEGORY_QUERY_PAUSE_MS);
+    }
+
+    if (failedFilters === category.overpassFilters.length) {
+      throw primaryError;
+    }
+
+    return {
+      elements,
+      warnings:
+        failedFilters > 0
+          ? [
+              `${category.label} 的部分條件查詢失敗（${uniqueMessages(
+                failures
+              ).join("、")}），已使用成功取得的資料繼續。`
+            ]
+          : []
+    };
+  }
 };
 
 const formatCategoryFailure = (category: PoiCategory, error: unknown) => {
@@ -231,11 +318,13 @@ export const fetchPoisDetailed = async (
 
   const elements: OverpassElement[] = [];
   const failures: string[] = [];
+  const partialWarnings: string[] = [];
 
   for (const category of categories) {
-    const query = buildOverpassQuery(center, radiusMeters, [category]);
     try {
-      elements.push(...(await fetchOverpassElements(query)));
+      const result = await fetchCategoryElements(center, radiusMeters, category);
+      elements.push(...result.elements);
+      partialWarnings.push(...result.warnings);
     } catch (error) {
       failures.push(formatCategoryFailure(category, error));
     }
@@ -253,14 +342,15 @@ export const fetchPoisDetailed = async (
     );
   }
 
-  const warnings =
-    failures.length > 0
-      ? [
-          `部分類別查詢失敗，已使用成功取得的資料繼續：${failures.join(
-            "；"
-          )}。`
-        ]
-      : [];
+  const warnings = [...partialWarnings];
+
+  if (failures.length > 0) {
+    warnings.push(
+      `部分類別查詢失敗，已使用成功取得的資料繼續：${failures.join(
+        "；"
+      )}。`
+    );
+  }
 
   return {
     pois: parseOverpassElements(elements, center, categories),
