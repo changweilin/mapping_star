@@ -814,6 +814,8 @@ function App() {
     useState<string[]>(initialSettings.selectedCategoryIds);
   const [isCategoryPanelExpanded, setIsCategoryPanelExpanded] =
     useState(false);
+  const [isSolverPanelExpanded, setIsSolverPanelExpanded] =
+    useState(false);
   const [pois, setPois] = useState<Poi[]>([]);
   const [results, setResults] = useState<StarResult[]>(
     initialLastStar ? [initialLastStar] : []
@@ -863,6 +865,9 @@ function App() {
   const categoryToggleLabel = isCategoryPanelExpanded
     ? "收合目標類別"
     : "展開目標類別";
+  const solverToggleLabel = isSolverPanelExpanded
+    ? "收合星形計算"
+    : "展開星形計算";
 
   const selectedResult = results[selectedResultIndex] ?? null;
   const magicAnimationOptions = useMemo(
@@ -2172,7 +2177,7 @@ function App() {
               <h2>目標類別</h2>
             </div>
             <button
-              className="category-collapse-button"
+              className="panel-collapse-button"
               type="button"
               aria-controls="target-category-grid"
               aria-expanded={isCategoryPanelExpanded}
@@ -2189,36 +2194,80 @@ function App() {
               )}
             </button>
           </div>
-          <div
-            className={`category-grid ${
-              isCategoryPanelExpanded ? "category-grid--expanded" : ""
-            }`}
-            id="target-category-grid"
-          >
-            {POI_CATEGORIES.map((category) => (
-              <label className="category-option" key={category.id}>
-                <input
-                  type="checkbox"
-                  checked={selectedCategoryIds.includes(category.id)}
-                  onChange={() => handleCategoryToggle(category.id)}
-                />
-                <span
-                  className="swatch"
-                  style={{ backgroundColor: category.color }}
-                />
-                <span>
-                  {category.label}
-                  {category.broad && <small>資料量大</small>}
-                </span>
-              </label>
-            ))}
+          <div className="category-stack">
+            <div
+              className={`category-grid ${
+                isCategoryPanelExpanded ? "category-grid--expanded" : ""
+              }`}
+              id="target-category-grid"
+            >
+              {POI_CATEGORIES.map((category) => (
+                <label className="category-option" key={category.id}>
+                  <input
+                    type="checkbox"
+                    checked={selectedCategoryIds.includes(category.id)}
+                    onChange={() => handleCategoryToggle(category.id)}
+                  />
+                  <span
+                    className="swatch"
+                    style={{ backgroundColor: category.color }}
+                  />
+                  <span>
+                    {category.label}
+                    {category.broad && <small>資料量大</small>}
+                  </span>
+                </label>
+              ))}
+            </div>
+            {!isCategoryPanelExpanded && (
+              <div
+                aria-hidden="true"
+                className="category-fade-preview fade-preview"
+              >
+                {POI_CATEGORIES.slice(4, 6).map((category) => (
+                  <div
+                    className="category-option category-option--preview"
+                    key={category.id}
+                  >
+                    <span className="category-option__input-ghost" />
+                    <span
+                      className="swatch"
+                      style={{ backgroundColor: category.color }}
+                    />
+                    <span>
+                      {category.label}
+                      {category.broad && <small>資料量大</small>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </section>
 
         <section className="panel">
-          <div className="panel-title">
-            <Star aria-hidden="true" />
-            <h2>星形計算</h2>
+          <div className="panel-title panel-title--with-action">
+            <div className="panel-title-main">
+              <Star aria-hidden="true" />
+              <h2>星形計算</h2>
+            </div>
+            <button
+              className="panel-collapse-button"
+              type="button"
+              aria-controls="solver-advanced-controls"
+              aria-expanded={isSolverPanelExpanded}
+              aria-label={solverToggleLabel}
+              title={solverToggleLabel}
+              onClick={() =>
+                setIsSolverPanelExpanded((expanded) => !expanded)
+              }
+            >
+              {isSolverPanelExpanded ? (
+                <ChevronUp size={18} />
+              ) : (
+                <ChevronDown size={18} />
+              )}
+            </button>
           </div>
           <div className="mode-row" role="group" aria-label="星形模式">
             <button
@@ -2235,58 +2284,6 @@ function App() {
             >
               六芒星
             </button>
-          </div>
-          <label className="toggle-row">
-            <input
-              type="checkbox"
-              checked={showSectors}
-              onChange={(event) => setShowSectors(event.target.checked)}
-            />
-            <span>顯示扇形區塊</span>
-          </label>
-          <div className="solver-controls">
-            <label className="range-wrap">
-              <span>角度容許</span>
-              <input
-                type="range"
-                min="6"
-                max={maxAngleToleranceDeg}
-                step="1"
-                value={effectiveAngleToleranceDeg}
-                onChange={(event) =>
-                  setAngleToleranceDeg(Number(event.target.value))
-                }
-              />
-              <strong>±{effectiveAngleToleranceDeg.toFixed(0)}°</strong>
-            </label>
-            <label className="range-wrap">
-              <span>每角候選</span>
-              <input
-                type="range"
-                min="1"
-                max="12"
-                step="1"
-                value={candidatesPerSlot}
-                onChange={(event) =>
-                  setCandidatesPerSlot(Number(event.target.value))
-                }
-              />
-              <strong>{candidatesPerSlot}</strong>
-            </label>
-            <label className="range-wrap">
-              <span>旋轉精度</span>
-              <input
-                type="range"
-                min="1"
-                max="8"
-                step="1"
-                value={rotationStepDeg}
-                onChange={(event) =>
-                  setRotationStepDeg(Number(event.target.value))
-                }
-              />
-              <strong>{rotationStepDeg}°</strong>
-            </label>
           </div>
           <div className="action-row">
             <button
@@ -2308,33 +2305,99 @@ function App() {
               重新計算
             </button>
           </div>
-          <div className="status-box" aria-live="polite">
-            {calculationProgress ? (
-              <div className="progress-block">
-                <div className="progress-meta">
-                  <span>{calculationProgress.label}</span>
-                  <strong>{Math.round(calculationProgress.percent)}%</strong>
-                </div>
-                <div
-                  aria-label="計算進度"
-                  aria-valuemax={100}
-                  aria-valuemin={0}
-                  aria-valuenow={Math.round(calculationProgress.percent)}
-                  className="progress-bar"
-                  role="progressbar"
-                >
-                  <span
-                    style={{ width: `${calculationProgress.percent}%` }}
-                  />
-                </div>
+          {!isSolverPanelExpanded && (
+            <div aria-hidden="true" className="fade-preview solver-fade-preview">
+              <div className="toggle-row solver-fade-preview__row">
+                <span className="solver-fade-preview__checkbox" />
+                <span>顯示扇形區塊</span>
               </div>
-            ) : loading ? (
-              "處理中..."
-            ) : (
-              status
-            )}
+            </div>
+          )}
+          <div
+            className="solver-advanced"
+            hidden={!isSolverPanelExpanded}
+            id="solver-advanced-controls"
+          >
+            <label className="toggle-row">
+              <input
+                type="checkbox"
+                checked={showSectors}
+                onChange={(event) => setShowSectors(event.target.checked)}
+              />
+              <span>顯示扇形區塊</span>
+            </label>
+            <div className="solver-controls">
+              <label className="range-wrap">
+                <span>角度容許</span>
+                <input
+                  type="range"
+                  min="6"
+                  max={maxAngleToleranceDeg}
+                  step="1"
+                  value={effectiveAngleToleranceDeg}
+                  onChange={(event) =>
+                    setAngleToleranceDeg(Number(event.target.value))
+                  }
+                />
+                <strong>±{effectiveAngleToleranceDeg.toFixed(0)}°</strong>
+              </label>
+              <label className="range-wrap">
+                <span>每角候選</span>
+                <input
+                  type="range"
+                  min="1"
+                  max="12"
+                  step="1"
+                  value={candidatesPerSlot}
+                  onChange={(event) =>
+                    setCandidatesPerSlot(Number(event.target.value))
+                  }
+                />
+                <strong>{candidatesPerSlot}</strong>
+              </label>
+              <label className="range-wrap">
+                <span>旋轉精度</span>
+                <input
+                  type="range"
+                  min="1"
+                  max="8"
+                  step="1"
+                  value={rotationStepDeg}
+                  onChange={(event) =>
+                    setRotationStepDeg(Number(event.target.value))
+                  }
+                />
+                <strong>{rotationStepDeg}°</strong>
+              </label>
+            </div>
+            <div className="status-box" aria-live="polite">
+              {calculationProgress ? (
+                <div className="progress-block">
+                  <div className="progress-meta">
+                    <span>{calculationProgress.label}</span>
+                    <strong>{Math.round(calculationProgress.percent)}%</strong>
+                  </div>
+                  <div
+                    aria-label="計算進度"
+                    aria-valuemax={100}
+                    aria-valuemin={0}
+                    aria-valuenow={Math.round(calculationProgress.percent)}
+                    className="progress-bar"
+                    role="progressbar"
+                  >
+                    <span
+                      style={{ width: `${calculationProgress.percent}%` }}
+                    />
+                  </div>
+                </div>
+              ) : loading ? (
+                "處理中..."
+              ) : (
+                status
+              )}
+            </div>
+            {error && <div className="error-box">{error}</div>}
           </div>
-          {error && <div className="error-box">{error}</div>}
         </section>
 
         {selectedPoi && (

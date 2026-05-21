@@ -448,8 +448,13 @@ a {
   gap: 8px;
 }
 
-.category-collapse-button {
-  display: none;
+.category-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.panel-collapse-button {
+  display: inline-grid;
   place-items: center;
   width: 30px;
   height: 30px;
@@ -460,11 +465,31 @@ a {
   border-radius: 6px;
 }
 
-.category-collapse-button:hover,
-.category-collapse-button:focus-visible {
+.panel-collapse-button:hover,
+.panel-collapse-button:focus-visible {
   color: var(--button-contrast);
   background: var(--blue);
   border-color: var(--blue);
+}
+
+.category-grid:not(.category-grid--expanded) .category-option:nth-child(n + 5) {
+  display: none;
+}
+
+.fade-preview {
+  max-height: 24px;
+  overflow: hidden;
+  opacity: 0.68;
+  pointer-events: none;
+  user-select: none;
+  mask-image: linear-gradient(to bottom, #000 30%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 30%, transparent 100%);
+}
+
+.category-fade-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .category-option {
@@ -477,6 +502,18 @@ a {
   background: var(--panel-soft);
   border: 1px solid transparent;
   border-radius: 6px;
+}
+
+.category-option--preview {
+  color: var(--ink-soft);
+}
+
+.category-option__input-ghost {
+  width: 16px;
+  height: 16px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
 }
 
 .category-option input {
@@ -712,6 +749,32 @@ a {
 .solver-controls {
   display: grid;
   gap: 10px;
+}
+
+.solver-advanced {
+  display: grid;
+  gap: 12px;
+}
+
+.solver-advanced[hidden] {
+  display: none;
+}
+
+.solver-fade-preview {
+  margin-top: -4px;
+}
+
+.solver-fade-preview__row {
+  min-height: 30px;
+  color: var(--ink-soft);
+}
+
+.solver-fade-preview__checkbox {
+  width: 16px;
+  height: 16px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
 }
 
 .action-row,
@@ -1833,13 +1896,6 @@ a {
     min-height: 380px;
   }
 
-  .category-collapse-button {
-    display: inline-grid;
-  }
-
-  .category-grid:not(.category-grid--expanded) .category-option:nth-child(n + 5) {
-    display: none;
-  }
 }
 
 @media (max-width: 520px) {
