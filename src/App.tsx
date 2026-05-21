@@ -65,9 +65,14 @@ import type { FavoriteItem, LatLng, Poi, StarMode, StarResult } from "./types";
 const DEFAULT_CENTER: LatLng = { lat: 25.033964, lng: 121.564468 };
 const MAX_RENDERED_POIS = 350;
 const MAX_RADIUS_KM = 30;
+const MAGIC_POINT_DELAY_MS = 1880;
+const MAGIC_POINT_STEP_MS = 90;
+const MAGIC_POINT_DURATION_MS = 520;
+const MAGIC_TIMELINE_END_PADDING_MS = 140;
 
 type RadiusHandle = "inner" | "outer";
-type MagicPlayback = "playing" | "paused";
+type MagicPlayback = "playing" | "paused" | "ended";
+type MagicPlaybackDirection = "forward" | "reverse";
 type MagicSymbolStroke = Extract<MagicCircleStroke, { kind: "symbol" }>;
 type CalculationProgress = {
   label: string;
@@ -268,6 +273,35 @@ const parseMagicSpeed = (value: string): MagicSpeed => {
   );
 };
 
+const getMagicTimelineDurationMs = (
+  result: StarResult,
+  strokes: MagicCircleStroke[]
+) => {
+  const strokeEndMs = strokes.reduce(
+    (latestEndMs, stroke) =>
+      Math.max(latestEndMs, stroke.delayMs + stroke.durationMs),
+    0
+  );
+  const pointEndMs =
+    result.points.length > 0
+      ? MAGIC_POINT_DELAY_MS +
+        (result.points.length - 1) * MAGIC_POINT_STEP_MS +
+        MAGIC_POINT_DURATION_MS
+      : 0;
+
+  return Math.max(strokeEndMs, pointEndMs);
+};
+
+const getMagicDelayMs = (
+  delayMs: number,
+  durationMs: number,
+  direction: MagicPlaybackDirection,
+  timelineDurationMs: number
+) =>
+  direction === "reverse"
+    ? Math.max(0, timelineDurationMs - delayMs - durationMs)
+    : delayMs;
+
 const getLayerElement = (layer: L.Layer) => {
   const pathLayer = layer as L.Layer & {
     getElement?: () => HTMLElement | SVGElement | null;
@@ -280,23 +314,36 @@ const getLayerElement = (layer: L.Layer) => {
 
 const setElementAnimationPlayback = (
   element: HTMLElement | SVGElement,
-  playback: MagicPlayback
+  playback: MagicPlayback,
+  direction: MagicPlaybackDirection
 ) => {
   const animationPlayState =
     playback === "playing" ? "running" : "paused";
-  element.style.animationPlayState = animationPlayState;
+  const animationDirection =
+    direction === "reverse" ? "reverse" : "normal";
+  const applyAnimationState = (target: HTMLElement | SVGElement) => {
+    target.style.animationPlayState = animationPlayState;
+    target.style.animationDirection = animationDirection;
+    if (direction === "reverse") {
+      target.style.animationFillMode = "both";
+    } else {
+      target.style.removeProperty("animation-fill-mode");
+    }
+  };
+
+  applyAnimationState(element);
   element
     .querySelectorAll<HTMLElement | SVGElement>("*")
-    .forEach((child) => {
-      child.style.animationPlayState = animationPlayState;
-    });
+    .forEach(applyAnimationState);
 };
 
 const applyMagicStrokeTiming = (
   layer: L.Layer,
   stroke: MagicCircleStroke,
   speed: MagicSpeed,
-  playback: MagicPlayback
+  playback: MagicPlayback,
+  direction: MagicPlaybackDirection,
+  timelineDurationMs: number
 ) => {
   const element = getLayerElement(layer);
   if (!element) return;
@@ -305,7 +352,17 @@ const applyMagicStrokeTiming = (
   if (stroke.kind !== "symbol" && element instanceof SVGElement) {
     element.setAttribute("pathLength", "1");
   }
-  element.style.setProperty("--magic-delay", `${stroke.delayMs / speed}ms`);
+  element.style.setProperty(
+    "--magic-delay",
+    `${
+      getMagicDelayMs(
+        stroke.delayMs,
+        stroke.durationMs,
+        direction,
+        timelineDurationMs
+      ) / speed
+    }ms`
+  );
   element.style.setProperty(
     "--magic-duration",
     `${stroke.durationMs / speed}ms`
@@ -319,17 +376,38 @@ const applyMagicStrokeTiming = (
     element.style.setProperty("--magic-symbol-opacity", `${stroke.opacity}`);
     element.style.setProperty("--magic-symbol-phase", `${stroke.phase}deg`);
   }
-  setElementAnimationPlayback(element, playback);
+  setElementAnimationPlayback(element, playback, direction);
+};
+
+const applyMagicMarkerTiming = (
+  element: SVGElement,
+  delayMs: number,
+  durationMs: number,
+  speed: MagicSpeed,
+  playback: MagicPlayback,
+  direction: MagicPlaybackDirection,
+  timelineDurationMs: number
+) => {
+  element.style.setProperty(
+    "--magic-delay",
+    `${
+      getMagicDelayMs(delayMs, durationMs, direction, timelineDurationMs) /
+      speed
+    }ms`
+  );
+  element.style.setProperty("--magic-duration", `${durationMs / speed}ms`);
+  setElementAnimationPlayback(element, playback, direction);
 };
 
 const setMagicLayerPlayback = (
   group: L.LayerGroup | null,
-  playback: MagicPlayback
+  playback: MagicPlayback,
+  direction: MagicPlaybackDirection
 ) => {
   group?.eachLayer((layer) => {
     const element = getLayerElement(layer);
     if (!element?.classList.contains("magic-drawable")) return;
-    setElementAnimationPlayback(element, playback);
+    setElementAnimationPlayback(element, playback, direction);
   });
 };
 
@@ -583,13 +661,18 @@ function App() {
   const [magicPlayback, setMagicPlayback] =
     useState<MagicPlayback>("playing");
   const magicPlaybackRef = useRef<MagicPlayback>("playing");
+  const [magicDirection, setMagicDirection] =
+    useState<MagicPlaybackDirection>("forward");
+  const magicDirectionRef = useRef<MagicPlaybackDirection>("forward");
   const [magicSpeed, setMagicSpeed] = useState<MagicSpeed>(1);
   const [magicReplayKey, setMagicReplayKey] = useState(0);
-  const [isMagicPlayerOpen, setIsMagicPlayerOpen] = useState(false);
   const [favorites, setFavorites] = useState<FavoriteItem[]>(() =>
     typeof window === "undefined" ? [] : loadFavorites()
   );
   const progressClearTimerRef = useRef<number | null>(null);
+  const magicPlaybackTimerRef = useRef<number | null>(null);
+  const magicPlaybackStartedAtRef = useRef<number | null>(null);
+  const magicPlaybackRemainingMsRef = useRef<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [calculationProgress, setCalculationProgress] =
     useState<CalculationProgress | null>(null);
@@ -691,6 +774,34 @@ function App() {
     window.clearTimeout(progressClearTimerRef.current);
     progressClearTimerRef.current = null;
   };
+  const clearMagicPlaybackTimer = () => {
+    if (magicPlaybackTimerRef.current === null) return;
+    window.clearTimeout(magicPlaybackTimerRef.current);
+    magicPlaybackTimerRef.current = null;
+  };
+  const primeMagicPlaybackTimer = (
+    result: StarResult,
+    animationIndex: number,
+    speed: MagicSpeed
+  ) => {
+    const strokes = makeMagicCircleStrokes(result, animationIndex);
+    magicPlaybackStartedAtRef.current = null;
+    magicPlaybackRemainingMsRef.current =
+      getMagicTimelineDurationMs(result, strokes) / speed +
+      MAGIC_TIMELINE_END_PADDING_MS;
+    clearMagicPlaybackTimer();
+  };
+  const restartMagicPlayback = (
+    direction: MagicPlaybackDirection,
+    animationIndex = magicAnimationIndex,
+    speed = magicSpeed
+  ) => {
+    if (!selectedResult) return;
+    setMagicDirection(direction);
+    primeMagicPlaybackTimer(selectedResult, animationIndex, speed);
+    setMagicPlayback("playing");
+    setMagicReplayKey((key) => key + 1);
+  };
   const setProgressStep = (percent: number, label: string) => {
     clearProgressTimer();
     setCalculationProgress({
@@ -711,17 +822,32 @@ function App() {
     setCalculationProgress(null);
   };
   const handleMagicPlaybackToggle = () => {
-    setMagicPlayback((current) =>
-      current === "playing" ? "paused" : "playing"
-    );
+    if (!selectedResult) return;
+
+    if (magicPlayback === "playing") {
+      setMagicPlayback("paused");
+      return;
+    }
+
+    if (magicPlayback === "ended") {
+      restartMagicPlayback("forward");
+      return;
+    }
+
+    setMagicPlayback("playing");
   };
   const handleMagicRewind = () => {
-    setMagicPlayback("paused");
-    setMagicReplayKey((key) => key + 1);
+    restartMagicPlayback("reverse");
   };
   const handleMagicAnimationChange = (value: number) => {
     setMagicAnimationIndex(value);
-    setMagicPlayback("playing");
+    restartMagicPlayback("forward", value);
+  };
+  const handleMagicSpeedChange = (value: MagicSpeed) => {
+    setMagicSpeed(value);
+    if (selectedResult) {
+      restartMagicPlayback("forward", magicAnimationIndex, value);
+    }
   };
   const fitMapToResult = (result: StarResult) => {
     mapRef.current?.fitBounds(makeStarBounds(result).pad(0.08), {
@@ -778,7 +904,13 @@ function App() {
     tileLayerRef.current.setZIndex(0);
   }, [mapLayer]);
 
-  useEffect(() => () => clearProgressTimer(), []);
+  useEffect(
+    () => () => {
+      clearProgressTimer();
+      clearMagicPlaybackTimer();
+    },
+    []
+  );
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -795,14 +927,73 @@ function App() {
 
   useEffect(() => {
     magicPlaybackRef.current = magicPlayback;
-    setMagicLayerPlayback(starLayerRef.current, magicPlayback);
-  }, [magicPlayback]);
+    magicDirectionRef.current = magicDirection;
+    setMagicLayerPlayback(starLayerRef.current, magicPlayback, magicDirection);
+  }, [magicPlayback, magicDirection]);
 
   useEffect(() => {
     if (!selectedResult) return;
+    setMagicDirection("forward");
+    primeMagicPlaybackTimer(selectedResult, magicAnimationIndex, magicSpeed);
     setMagicPlayback("playing");
     setMagicReplayKey((key) => key + 1);
   }, [selectedResult?.id]);
+
+  useEffect(() => {
+    clearMagicPlaybackTimer();
+
+    if (!selectedResult) {
+      magicPlaybackStartedAtRef.current = null;
+      magicPlaybackRemainingMsRef.current = null;
+      return;
+    }
+
+    if (magicPlayback !== "playing") {
+      if (
+        magicPlayback === "paused" &&
+        magicPlaybackStartedAtRef.current !== null &&
+        magicPlaybackRemainingMsRef.current !== null
+      ) {
+        const elapsedMs = performance.now() - magicPlaybackStartedAtRef.current;
+        magicPlaybackRemainingMsRef.current = Math.max(
+          0,
+          magicPlaybackRemainingMsRef.current - elapsedMs
+        );
+        magicPlaybackStartedAtRef.current = null;
+      }
+      return;
+    }
+
+    if (magicPlaybackRemainingMsRef.current === null) {
+      primeMagicPlaybackTimer(selectedResult, magicAnimationIndex, magicSpeed);
+    }
+
+    if (
+      magicPlaybackRemainingMsRef.current !== null &&
+      magicPlaybackRemainingMsRef.current <= 0
+    ) {
+      magicPlaybackStartedAtRef.current = null;
+      magicPlaybackRemainingMsRef.current = null;
+      setMagicPlayback("ended");
+      return;
+    }
+
+    magicPlaybackStartedAtRef.current = performance.now();
+    magicPlaybackTimerRef.current = window.setTimeout(() => {
+      magicPlaybackStartedAtRef.current = null;
+      magicPlaybackRemainingMsRef.current = null;
+      setMagicPlayback("ended");
+    }, magicPlaybackRemainingMsRef.current ?? 0);
+
+    return clearMagicPlaybackTimer;
+  }, [
+    magicAnimationIndex,
+    magicDirection,
+    magicPlayback,
+    magicReplayKey,
+    magicSpeed,
+    selectedResult
+  ]);
 
   useEffect(() => {
     saveSettings({
@@ -926,54 +1117,62 @@ function App() {
     if (!selectedResult) return;
 
     const magicElement = getMagicElement(magicAnimationIndex);
-
-    makeMagicCircleStrokes(selectedResult, magicAnimationIndex).forEach(
-      (stroke) => {
-        const layer =
-          stroke.kind === "circle"
-            ? L.circle([stroke.center.lat, stroke.center.lng], {
-                radius: stroke.radiusMeters,
-                color: stroke.color,
-                weight: stroke.weight,
-                opacity: stroke.opacity,
-                fill: false,
-                interactive: false,
-                className: stroke.className
-              })
-            : stroke.kind === "symbol"
-              ? L.marker([stroke.position.lat, stroke.position.lng], {
-                  icon: makeMagicSymbolIcon(stroke),
-                  interactive: false,
-                  keyboard: false,
-                  zIndexOffset:
-                    stroke.role === "center"
-                      ? 760
-                      : stroke.role === "endpoint"
-                        ? 820
-                        : 560
-                })
-              : L.polyline(
-                  stroke.points.map(
-                    (point) => [point.lat, point.lng] as L.LatLngExpression
-                  ),
-                  {
-                    color: stroke.color,
-                    weight: stroke.weight,
-                    opacity: stroke.opacity,
-                    interactive: false,
-                    className: stroke.className
-                  }
-                );
-
-        layer.addTo(group);
-        applyMagicStrokeTiming(
-          layer,
-          stroke,
-          magicSpeed,
-          magicPlaybackRef.current
-        );
-      }
+    const magicStrokes = makeMagicCircleStrokes(
+      selectedResult,
+      magicAnimationIndex
     );
+    const timelineDurationMs = getMagicTimelineDurationMs(
+      selectedResult,
+      magicStrokes
+    );
+
+    magicStrokes.forEach((stroke) => {
+      const layer =
+        stroke.kind === "circle"
+          ? L.circle([stroke.center.lat, stroke.center.lng], {
+              radius: stroke.radiusMeters,
+              color: stroke.color,
+              weight: stroke.weight,
+              opacity: stroke.opacity,
+              fill: false,
+              interactive: false,
+              className: stroke.className
+            })
+          : stroke.kind === "symbol"
+            ? L.marker([stroke.position.lat, stroke.position.lng], {
+                icon: makeMagicSymbolIcon(stroke),
+                interactive: false,
+                keyboard: false,
+                zIndexOffset:
+                  stroke.role === "center"
+                    ? 760
+                    : stroke.role === "endpoint"
+                      ? 820
+                      : 560
+              })
+            : L.polyline(
+                stroke.points.map(
+                  (point) => [point.lat, point.lng] as L.LatLngExpression
+                ),
+                {
+                  color: stroke.color,
+                  weight: stroke.weight,
+                  opacity: stroke.opacity,
+                  interactive: false,
+                  className: stroke.className
+                }
+              );
+
+      layer.addTo(group);
+      applyMagicStrokeTiming(
+        layer,
+        stroke,
+        magicSpeed,
+        magicPlaybackRef.current,
+        magicDirectionRef.current,
+        timelineDurationMs
+      );
+    });
 
     selectedResult.points.forEach((poi, index) => {
       const marker = L.circleMarker([poi.lat, poi.lng], {
@@ -995,20 +1194,25 @@ function App() {
         .addTo(group);
       const markerElement = marker.getElement() as SVGElement | null;
       markerElement?.classList.add("magic-drawable");
-      markerElement?.style.setProperty(
-        "--magic-delay",
-        `${(1880 + index * 90) / magicSpeed}ms`
-      );
-      markerElement?.style.setProperty(
-        "--magic-duration",
-        `${520 / magicSpeed}ms`
-      );
       if (markerElement) {
-        markerElement.style.animationPlayState =
-          magicPlaybackRef.current === "playing" ? "running" : "paused";
+        applyMagicMarkerTiming(
+          markerElement,
+          MAGIC_POINT_DELAY_MS + index * MAGIC_POINT_STEP_MS,
+          MAGIC_POINT_DURATION_MS,
+          magicSpeed,
+          magicPlaybackRef.current,
+          magicDirectionRef.current,
+          timelineDurationMs
+        );
       }
     });
-  }, [magicAnimationIndex, magicReplayKey, magicSpeed, selectedResult]);
+  }, [
+    magicAnimationIndex,
+    magicDirection,
+    magicReplayKey,
+    magicSpeed,
+    selectedResult
+  ]);
 
   useEffect(() => {
     if (!selectedResult) return;
@@ -1313,6 +1517,28 @@ function App() {
     );
   };
 
+  const magicPlayButtonLabel =
+    !selectedResult
+      ? "播放"
+      : magicPlayback === "playing"
+        ? "暫停"
+        : magicPlayback === "ended"
+          ? "重新播放"
+          : magicDirection === "reverse"
+            ? "繼續倒放"
+            : "播放";
+  const magicStatusLabel = !selectedResult
+    ? "無結果"
+    : magicPlayback === "ended"
+      ? magicDirection === "reverse"
+        ? "已倒回起點"
+        : "已播完"
+      : magicPlayback === "playing"
+        ? magicDirection === "reverse"
+          ? "倒放中"
+          : "播放中"
+        : "已暫停";
+
   return (
     <main className="app-shell">
       <aside className="sidebar" aria-label="地圖控制">
@@ -1328,97 +1554,6 @@ function App() {
             <h1>Mapping Star</h1>
           </div>
           <div className="header-actions">
-            <div className="magic-player">
-              <button
-                aria-controls="magic-player-menu"
-                aria-expanded={isMagicPlayerOpen}
-                aria-label="魔法陣播放器"
-                className="magic-player-toggle"
-                title="魔法陣播放器"
-                type="button"
-                onClick={() => setIsMagicPlayerOpen((open) => !open)}
-              >
-                {magicPlayback === "playing" && selectedResult ? (
-                  <Pause size={18} />
-                ) : (
-                  <Play size={18} />
-                )}
-                <ChevronDown
-                  aria-hidden="true"
-                  className={isMagicPlayerOpen ? "open" : ""}
-                  size={14}
-                />
-              </button>
-              {isMagicPlayerOpen && (
-                <div
-                  className="magic-player-menu"
-                  id="magic-player-menu"
-                  role="group"
-                  aria-label="魔法陣動畫控制"
-                >
-                  <div className="magic-player-actions">
-                    <button
-                      className="magic-control-button"
-                      type="button"
-                      title="倒帶"
-                      aria-label="倒帶魔法陣動畫"
-                      onClick={handleMagicRewind}
-                      disabled={!selectedResult}
-                    >
-                      <Rewind size={17} />
-                    </button>
-                    <button
-                      className="magic-control-button"
-                      type="button"
-                      title={magicPlayback === "playing" ? "暫停" : "播放"}
-                      aria-label={
-                        magicPlayback === "playing"
-                          ? "暫停魔法陣動畫"
-                          : "播放魔法陣動畫"
-                      }
-                      onClick={handleMagicPlaybackToggle}
-                      disabled={!selectedResult}
-                    >
-                      {magicPlayback === "playing" ? (
-                        <Pause size={17} />
-                      ) : (
-                        <Play size={17} />
-                      )}
-                    </button>
-                  </div>
-                  <label className="select-wrap">
-                    <span>動畫</span>
-                    <select
-                      value={magicAnimationIndex}
-                      onChange={(event) =>
-                        handleMagicAnimationChange(Number(event.target.value))
-                      }
-                    >
-                      {magicAnimationOptions.map((option) => (
-                        <option value={option.index} key={option.index}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="select-wrap">
-                    <span>速度</span>
-                    <select
-                      value={magicSpeed}
-                      onChange={(event) =>
-                        setMagicSpeed(parseMagicSpeed(event.target.value))
-                      }
-                    >
-                      {MAGIC_SPEED_OPTIONS.map((speed) => (
-                        <option value={speed} key={speed}>
-                          {formatMagicSpeed(speed)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              )}
-            </div>
             <button
               aria-label={
                 theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
@@ -1436,6 +1571,79 @@ function App() {
             </button>
           </div>
         </header>
+
+        <section className="magic-player" aria-label="魔法陣播放器">
+          <div className="magic-player-status">
+            <span>魔法陣</span>
+            <strong>{magicStatusLabel}</strong>
+          </div>
+          <div
+            className="magic-player-controls"
+            role="group"
+            aria-label="播放控制"
+          >
+            <button
+              className={
+                magicDirection === "reverse" && magicPlayback === "playing"
+                  ? "magic-control-button active"
+                  : "magic-control-button"
+              }
+              type="button"
+              title="倒放"
+              aria-label="倒放魔法陣動畫"
+              onClick={handleMagicRewind}
+              disabled={!selectedResult}
+            >
+              <Rewind size={17} />
+            </button>
+            <button
+              className="magic-control-button magic-control-button--primary"
+              type="button"
+              title={magicPlayButtonLabel}
+              aria-label={`${magicPlayButtonLabel}魔法陣動畫`}
+              onClick={handleMagicPlaybackToggle}
+              disabled={!selectedResult}
+            >
+              {magicPlayback === "playing" && selectedResult ? (
+                <Pause size={18} />
+              ) : (
+                <Play size={18} />
+              )}
+            </button>
+          </div>
+          <div className="magic-player-fields">
+            <label className="select-wrap select-wrap--compact">
+              <span>動畫</span>
+              <select
+                value={magicAnimationIndex}
+                onChange={(event) =>
+                  handleMagicAnimationChange(Number(event.target.value))
+                }
+              >
+                {magicAnimationOptions.map((option) => (
+                  <option value={option.index} key={option.index}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="select-wrap select-wrap--compact">
+              <span>速度</span>
+              <select
+                value={magicSpeed}
+                onChange={(event) =>
+                  handleMagicSpeedChange(parseMagicSpeed(event.target.value))
+                }
+              >
+                {MAGIC_SPEED_OPTIONS.map((speed) => (
+                  <option value={speed} key={speed}>
+                    {formatMagicSpeed(speed)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </section>
 
         <section className="panel map-layer-panel">
           <div className="panel-title">

@@ -197,12 +197,7 @@ a {
   flex: 0 0 auto;
 }
 
-.magic-player {
-  position: relative;
-}
-
-.theme-toggle,
-.magic-player-toggle {
+.theme-toggle {
   display: inline-grid;
   place-items: center;
   width: 38px;
@@ -213,55 +208,59 @@ a {
   border-radius: 6px;
 }
 
-.magic-player-toggle {
-  grid-template-columns: 1fr auto;
-  gap: 0;
-  padding: 0 5px 0 8px;
-}
-
-.magic-player-toggle .open {
-  transform: rotate(180deg);
-}
-
 .theme-toggle:hover,
-.theme-toggle:focus-visible,
-.magic-player-toggle:hover,
-.magic-player-toggle:focus-visible {
+.theme-toggle:focus-visible {
   color: var(--button-contrast);
   background: var(--blue);
   border-color: var(--blue);
 }
 
-.magic-player-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 900;
+.magic-player {
   display: grid;
-  width: 286px;
-  max-width: calc(100vw - 36px);
+  grid-template-columns: minmax(78px, 0.45fr) auto minmax(0, 1fr);
+  align-items: end;
   gap: 10px;
-  padding: 12px;
+  padding: 10px;
   color: var(--control-ink);
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: var(--shadow);
+  box-shadow: 0 10px 24px rgba(30, 40, 55, 0.1);
 }
 
-.magic-player-actions {
+.magic-player-status {
   display: grid;
-  grid-template-columns: 38px 38px minmax(0, 1fr);
+  gap: 2px;
+  align-self: center;
+  min-width: 0;
+}
+
+.magic-player-status span {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.magic-player-status strong {
+  overflow: hidden;
+  color: var(--blue-dark);
+  font-size: 15px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.magic-player-controls {
+  display: flex;
   gap: 8px;
   align-items: center;
 }
 
-.magic-player-actions::after {
-  content: "播放器";
-  color: var(--ink-soft);
-  font-size: 12px;
-  font-weight: 800;
-  justify-self: end;
+.magic-player-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 82px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .eyebrow {
@@ -611,6 +610,13 @@ a {
   border-radius: 6px;
 }
 
+.magic-control-button--primary {
+  color: var(--button-contrast);
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.magic-control-button.active,
 .magic-control-button:hover,
 .magic-control-button:focus-visible {
   color: var(--button-contrast);
@@ -623,6 +629,10 @@ a {
   min-width: 0;
   flex-direction: column;
   gap: 6px;
+}
+
+.select-wrap--compact {
+  gap: 5px;
 }
 
 .select-wrap span {
@@ -641,6 +651,11 @@ a {
   border: 1px solid var(--input-border);
   border-radius: 6px;
   outline: none;
+}
+
+.select-wrap--compact select {
+  height: 34px;
+  padding: 0 8px;
 }
 
 .select-wrap select:focus {
@@ -1814,6 +1829,20 @@ a {
 
   .search-row {
     grid-template-columns: minmax(0, 1fr) 38px 38px;
+  }
+
+  .magic-player {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .magic-player-controls {
+    justify-self: end;
+  }
+
+  .magic-player-fields {
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr) 92px;
   }
 
   .result-row {
