@@ -1,5 +1,6 @@
 import {
   type ChangeEvent,
+  type CSSProperties,
   type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
@@ -140,6 +141,7 @@ type MarqueeSelectProps = {
   children: ReactNode;
   onChange: (value: string) => void;
   onTouchEnd?: (event: TouchEvent<HTMLElement>) => void;
+  onTouchMove?: (event: TouchEvent<HTMLElement>) => void;
   onTouchStart?: (event: TouchEvent<HTMLElement>) => void;
   onWheel?: (event: WheelEvent<HTMLElement>) => void;
 };
@@ -151,12 +153,14 @@ const MarqueeSelect = ({
   children,
   onChange,
   onTouchEnd,
+  onTouchMove,
   onTouchStart,
   onWheel
 }: MarqueeSelectProps) => {
   const viewportRef = useRef<HTMLSpanElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
+  const [marqueeShiftPx, setMarqueeShiftPx] = useState(0);
 
   useEffect(() => {
     const measure = () => {
@@ -164,7 +168,9 @@ const MarqueeSelect = ({
       const text = textRef.current;
       if (!viewport || !text) return;
 
-      setIsOverflowing(text.scrollWidth > viewport.clientWidth + 1);
+      const overflowPx = Math.max(0, text.scrollWidth - viewport.clientWidth);
+      setIsOverflowing(overflowPx > 1);
+      setMarqueeShiftPx(Math.ceil(overflowPx));
     };
 
     measure();
@@ -186,11 +192,15 @@ const MarqueeSelect = ({
   const className = isOverflowing
     ? "select-wrap select-wrap--compact select-wrap--marquee"
     : "select-wrap select-wrap--compact";
+  const marqueeStyle = {
+    "--select-marquee-shift": `-${marqueeShiftPx}px`
+  } as CSSProperties;
 
   return (
     <label
       className={className}
       onTouchEnd={onTouchEnd}
+      onTouchMove={onTouchMove}
       onTouchStart={onTouchStart}
       onWheel={onWheel}
     >
@@ -209,11 +219,8 @@ const MarqueeSelect = ({
           className="select-marquee"
           ref={viewportRef}
         >
-          <span className="select-marquee__track">
+          <span className="select-marquee__track" style={marqueeStyle}>
             <span ref={textRef}>{valueLabel}</span>
-            {isOverflowing ? (
-              <span className="select-marquee__copy">{valueLabel}</span>
-            ) : null}
           </span>
         </span>
       </span>
@@ -1145,57 +1152,75 @@ function App() {
       getSteppedOption(MAGIC_SPEED_OPTIONS, magicSpeedRef.current, step)
     );
   };
-  const handleMagicPlaybackModeWheel = (event: WheelEvent<HTMLElement>) => {
+  const preventMagicSelectScroll = (
+    event: WheelEvent<HTMLElement> | TouchEvent<HTMLElement>
+  ) => {
     event.preventDefault();
+    event.stopPropagation();
+  };
+  const stopMagicSelectTouch = (event: TouchEvent<HTMLElement>) => {
+    event.stopPropagation();
+  };
+  const handleMagicPlaybackModeWheel = (event: WheelEvent<HTMLElement>) => {
+    preventMagicSelectScroll(event);
     stepMagicPlaybackMode(event.deltaY > 0 ? 1 : -1);
   };
   const handleMagicAnimationWheel = (event: WheelEvent<HTMLElement>) => {
-    event.preventDefault();
+    preventMagicSelectScroll(event);
     stepMagicAnimation(event.deltaY > 0 ? 1 : -1);
   };
   const handleMagicSpeedWheel = (event: WheelEvent<HTMLElement>) => {
-    event.preventDefault();
+    preventMagicSelectScroll(event);
     stepMagicSpeed(event.deltaY > 0 ? 1 : -1);
   };
   const handleMagicPlaybackModeTouchStart = (
     event: TouchEvent<HTMLElement>
   ) => {
+    stopMagicSelectTouch(event);
     magicPlaybackModeTouchYRef.current = event.touches[0]?.clientY ?? null;
   };
   const handleMagicAnimationTouchStart = (event: TouchEvent<HTMLElement>) => {
+    stopMagicSelectTouch(event);
     magicAnimationTouchYRef.current = event.touches[0]?.clientY ?? null;
   };
   const handleMagicSpeedTouchStart = (event: TouchEvent<HTMLElement>) => {
+    stopMagicSelectTouch(event);
     magicSpeedTouchYRef.current = event.touches[0]?.clientY ?? null;
   };
+  const handleMagicSelectTouchMove = (event: TouchEvent<HTMLElement>) => {
+    preventMagicSelectScroll(event);
+  };
   const handleMagicPlaybackModeTouchEnd = (event: TouchEvent<HTMLElement>) => {
+    stopMagicSelectTouch(event);
     const startY = magicPlaybackModeTouchYRef.current;
     magicPlaybackModeTouchYRef.current = null;
     if (startY === null) return;
 
     const deltaY = (event.changedTouches[0]?.clientY ?? startY) - startY;
     if (Math.abs(deltaY) < 18) return;
-    event.preventDefault();
+    preventMagicSelectScroll(event);
     stepMagicPlaybackMode(deltaY < 0 ? 1 : -1);
   };
   const handleMagicAnimationTouchEnd = (event: TouchEvent<HTMLElement>) => {
+    stopMagicSelectTouch(event);
     const startY = magicAnimationTouchYRef.current;
     magicAnimationTouchYRef.current = null;
     if (startY === null) return;
 
     const deltaY = (event.changedTouches[0]?.clientY ?? startY) - startY;
     if (Math.abs(deltaY) < 18) return;
-    event.preventDefault();
+    preventMagicSelectScroll(event);
     stepMagicAnimation(deltaY < 0 ? 1 : -1);
   };
   const handleMagicSpeedTouchEnd = (event: TouchEvent<HTMLElement>) => {
+    stopMagicSelectTouch(event);
     const startY = magicSpeedTouchYRef.current;
     magicSpeedTouchYRef.current = null;
     if (startY === null) return;
 
     const deltaY = (event.changedTouches[0]?.clientY ?? startY) - startY;
     if (Math.abs(deltaY) < 18) return;
-    event.preventDefault();
+    preventMagicSelectScroll(event);
     stepMagicSpeed(deltaY < 0 ? 1 : -1);
   };
   const fitMapToResult = (result: StarResult) => {
@@ -1893,6 +1918,14 @@ function App() {
     magicPlayback === "playing" && magicDirection === "reverse"
       ? "暫停"
       : "倒放";
+  const isMagicRewindActive =
+    Boolean(selectedResult) &&
+    magicPlayback === "playing" &&
+    magicDirection === "reverse";
+  const isMagicPlayActive =
+    Boolean(selectedResult) &&
+    magicPlayback === "playing" &&
+    magicDirection === "forward";
 
   return (
     <main className="app-shell">
@@ -1935,19 +1968,18 @@ function App() {
           >
             <button
               className={
-                magicDirection === "reverse" && magicPlayback === "playing"
+                isMagicRewindActive
                   ? "magic-control-button active"
                   : "magic-control-button"
               }
               type="button"
+              aria-pressed={isMagicRewindActive}
               title={magicRewindButtonLabel}
               aria-label={`${magicRewindButtonLabel}魔法陣動畫`}
               onClick={handleMagicRewind}
               disabled={!selectedResult}
             >
-              {magicPlayback === "playing" &&
-              magicDirection === "reverse" &&
-              selectedResult ? (
+              {isMagicRewindActive && selectedResult ? (
                 <Pause size={18} />
               ) : (
                 <Play
@@ -1958,16 +1990,19 @@ function App() {
               )}
             </button>
             <button
-              className="magic-control-button magic-control-button--primary"
+              className={
+                isMagicPlayActive
+                  ? "magic-control-button magic-control-button--primary active"
+                  : "magic-control-button magic-control-button--primary"
+              }
               type="button"
+              aria-pressed={isMagicPlayActive}
               title={magicPlayButtonLabel}
               aria-label={`${magicPlayButtonLabel}魔法陣動畫`}
               onClick={handleMagicPlaybackToggle}
               disabled={!selectedResult}
             >
-              {magicPlayback === "playing" &&
-              magicDirection === "forward" &&
-              selectedResult ? (
+              {isMagicPlayActive && selectedResult ? (
                 <Pause size={18} />
               ) : (
                 <Play size={18} />
@@ -1983,6 +2018,7 @@ function App() {
                 handleMagicPlaybackModeChange(value as MagicPlaybackMode)
               }
               onTouchEnd={handleMagicPlaybackModeTouchEnd}
+              onTouchMove={handleMagicSelectTouchMove}
               onTouchStart={handleMagicPlaybackModeTouchStart}
               onWheel={handleMagicPlaybackModeWheel}
             >
@@ -2000,6 +2036,7 @@ function App() {
                 handleMagicSpeedChange(parseMagicSpeed(value))
               }
               onTouchEnd={handleMagicSpeedTouchEnd}
+              onTouchMove={handleMagicSelectTouchMove}
               onTouchStart={handleMagicSpeedTouchStart}
               onWheel={handleMagicSpeedWheel}
             >
@@ -2015,6 +2052,7 @@ function App() {
               valueLabel={magicAnimationLabel}
               onChange={(value) => handleMagicAnimationChange(Number(value))}
               onTouchEnd={handleMagicAnimationTouchEnd}
+              onTouchMove={handleMagicSelectTouchMove}
               onTouchStart={handleMagicAnimationTouchStart}
               onWheel={handleMagicAnimationWheel}
             >

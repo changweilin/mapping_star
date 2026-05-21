@@ -589,9 +589,7 @@ a {
 }
 
 .magic-control-button--primary {
-  color: var(--button-contrast);
-  background: var(--blue);
-  border-color: var(--blue);
+  width: 42px;
 }
 
 .magic-control-button.active,
@@ -611,6 +609,8 @@ a {
   min-width: 0;
   flex-direction: column;
   gap: 6px;
+  overscroll-behavior: contain;
+  touch-action: none;
 }
 
 .select-wrap--compact {
@@ -673,39 +673,24 @@ a {
 }
 
 .select-marquee__track {
-  display: inline-flex;
+  display: block;
   max-width: 100%;
   min-width: 0;
-  align-items: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .select-marquee__track > span:first-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.select-marquee__copy {
-  flex: 0 0 auto;
+  display: inline-block;
 }
 
 .select-wrap--marquee .select-shell:hover .select-marquee__track,
 .select-wrap--marquee .select-shell:focus-within .select-marquee__track {
   max-width: none;
-  gap: 28px;
-  animation: select-marquee 5.2s linear infinite;
-}
-
-.select-wrap--marquee
-  .select-shell:hover
-  .select-marquee__track
-  > span:first-child,
-.select-wrap--marquee
-  .select-shell:focus-within
-  .select-marquee__track
-  > span:first-child {
   overflow: visible;
+  text-overflow: clip;
+  animation: select-marquee 4.8s ease-in-out infinite alternate;
 }
 
 .select-wrap select:focus {
@@ -721,7 +706,7 @@ a {
 
   86%,
   100% {
-    transform: translateX(calc(-50% - 14px));
+    transform: translateX(var(--select-marquee-shift, 0));
   }
 }
 
