@@ -1,6 +1,8 @@
 import {
+  type ChangeEvent,
   type KeyboardEvent,
   type PointerEvent,
+  type ReactNode,
   type TouchEvent,
   type WheelEvent,
   useEffect,
@@ -63,7 +65,7 @@ import {
 import { solveStarFromPois } from "./lib/solver";
 import type { FavoriteItem, LatLng, Poi, StarMode, StarResult } from "./types";
 
-type MagicPlaybackMode = "continuous" | "loop-all" | "loop-one";
+type MagicPlaybackMode = "single" | "continuous" | "loop-all" | "loop-one";
 
 const DEFAULT_CENTER: LatLng = { lat: 25.033964, lng: 121.564468 };
 const MAX_RENDERED_POIS = 350;
@@ -73,6 +75,7 @@ const MAGIC_POINT_STEP_MS = 90;
 const MAGIC_POINT_DURATION_MS = 520;
 const MAGIC_TIMELINE_END_PADDING_MS = 140;
 const MAGIC_PLAYBACK_MODES = [
+  { id: "single", label: "單曲播放" },
   { id: "continuous", label: "連續播放" },
   { id: "loop-all", label: "循環播放" },
   { id: "loop-one", label: "單曲循環播放" }
@@ -128,6 +131,94 @@ const MAP_TILE_LAYERS: Record<MapLayerId, MapTileLayerConfig> = {
         'Tiles &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community'
     }
   }
+};
+
+type MarqueeSelectProps = {
+  label: string;
+  value: string | number;
+  valueLabel: string;
+  children: ReactNode;
+  onChange: (value: string) => void;
+  onTouchEnd?: (event: TouchEvent<HTMLElement>) => void;
+  onTouchStart?: (event: TouchEvent<HTMLElement>) => void;
+  onWheel?: (event: WheelEvent<HTMLElement>) => void;
+};
+
+const MarqueeSelect = ({
+  label,
+  value,
+  valueLabel,
+  children,
+  onChange,
+  onTouchEnd,
+  onTouchStart,
+  onWheel
+}: MarqueeSelectProps) => {
+  const viewportRef = useRef<HTMLSpanElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+
+  useEffect(() => {
+    const measure = () => {
+      const viewport = viewportRef.current;
+      const text = textRef.current;
+      if (!viewport || !text) return;
+
+      setIsOverflowing(text.scrollWidth > viewport.clientWidth + 1);
+    };
+
+    measure();
+
+    if (typeof window === "undefined") return undefined;
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+
+    const observer = new ResizeObserver(measure);
+    if (viewportRef.current) observer.observe(viewportRef.current);
+    if (textRef.current) observer.observe(textRef.current);
+
+    return () => observer.disconnect();
+  }, [valueLabel]);
+
+  const className = isOverflowing
+    ? "select-wrap select-wrap--compact select-wrap--marquee"
+    : "select-wrap select-wrap--compact";
+
+  return (
+    <label
+      className={className}
+      onTouchEnd={onTouchEnd}
+      onTouchStart={onTouchStart}
+      onWheel={onWheel}
+    >
+      <span className="select-wrap__label">{label}</span>
+      <span className="select-shell" title={valueLabel}>
+        <select
+          value={value}
+          onChange={(event: ChangeEvent<HTMLSelectElement>) =>
+            onChange(event.target.value)
+          }
+        >
+          {children}
+        </select>
+        <span
+          aria-hidden="true"
+          className="select-marquee"
+          ref={viewportRef}
+        >
+          <span className="select-marquee__track">
+            <span ref={textRef}>{valueLabel}</span>
+            {isOverflowing ? (
+              <span className="select-marquee__copy">{valueLabel}</span>
+            ) : null}
+          </span>
+        </span>
+      </span>
+    </label>
+  );
 };
 
 const ABOUT_LINKS = [
@@ -721,6 +812,7 @@ function App() {
   const magicPlaybackStartedAtRef = useRef<number | null>(null);
   const magicTimelineDurationMsRef = useRef(0);
   const magicTimelinePositionMsRef = useRef(0);
+  const magicPlaybackModeTouchYRef = useRef<number | null>(null);
   const magicAnimationTouchYRef = useRef<number | null>(null);
   const magicSpeedTouchYRef = useRef<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -749,6 +841,13 @@ function App() {
     () => getMagicAnimationOptions(selectedResult?.mode ?? starMode),
     [selectedResult?.mode, starMode]
   );
+  const magicPlaybackModeLabel =
+    MAGIC_PLAYBACK_MODES.find((mode) => mode.id === magicPlaybackMode)
+      ?.label ?? MAGIC_PLAYBACK_MODES[0].label;
+  const magicSpeedLabel = formatMagicSpeed(magicSpeed);
+  const magicAnimationLabel =
+    magicAnimationOptions.find((option) => option.index === magicAnimationIndex)
+      ?.label ?? magicAnimationOptions[0]?.label ?? "動畫";
   const innerRadiusMeters = innerRadiusKm * 1000;
   const outerRadiusMeters = outerRadiusKm * 1000;
   const visiblePois = useMemo(
@@ -910,6 +1009,7 @@ function App() {
     direction: MagicPlaybackDirection,
     mode: MagicPlaybackMode
   ) => {
+    if (mode === "single") return null;
     if (mode === "loop-one") return currentIndex;
 
     const nextIndex =
@@ -1023,6 +1123,15 @@ function App() {
   const handleMagicPlaybackModeChange = (value: MagicPlaybackMode) => {
     setMagicPlaybackMode(value);
   };
+  const stepMagicPlaybackMode = (step: number) => {
+    handleMagicPlaybackModeChange(
+      getSteppedOption(
+        MAGIC_PLAYBACK_MODES.map((mode) => mode.id),
+        magicPlaybackMode,
+        step
+      )
+    );
+  };
   const stepMagicAnimation = (step: number) => {
     const nextIndex = getSteppedOption(
       magicAnimationOptions.map((option) => option.index),
@@ -1036,6 +1145,10 @@ function App() {
       getSteppedOption(MAGIC_SPEED_OPTIONS, magicSpeedRef.current, step)
     );
   };
+  const handleMagicPlaybackModeWheel = (event: WheelEvent<HTMLElement>) => {
+    event.preventDefault();
+    stepMagicPlaybackMode(event.deltaY > 0 ? 1 : -1);
+  };
   const handleMagicAnimationWheel = (event: WheelEvent<HTMLElement>) => {
     event.preventDefault();
     stepMagicAnimation(event.deltaY > 0 ? 1 : -1);
@@ -1044,11 +1157,26 @@ function App() {
     event.preventDefault();
     stepMagicSpeed(event.deltaY > 0 ? 1 : -1);
   };
+  const handleMagicPlaybackModeTouchStart = (
+    event: TouchEvent<HTMLElement>
+  ) => {
+    magicPlaybackModeTouchYRef.current = event.touches[0]?.clientY ?? null;
+  };
   const handleMagicAnimationTouchStart = (event: TouchEvent<HTMLElement>) => {
     magicAnimationTouchYRef.current = event.touches[0]?.clientY ?? null;
   };
   const handleMagicSpeedTouchStart = (event: TouchEvent<HTMLElement>) => {
     magicSpeedTouchYRef.current = event.touches[0]?.clientY ?? null;
+  };
+  const handleMagicPlaybackModeTouchEnd = (event: TouchEvent<HTMLElement>) => {
+    const startY = magicPlaybackModeTouchYRef.current;
+    magicPlaybackModeTouchYRef.current = null;
+    if (startY === null) return;
+
+    const deltaY = (event.changedTouches[0]?.clientY ?? startY) - startY;
+    if (Math.abs(deltaY) < 18) return;
+    event.preventDefault();
+    stepMagicPlaybackMode(deltaY < 0 ? 1 : -1);
   };
   const handleMagicAnimationTouchEnd = (event: TouchEvent<HTMLElement>) => {
     const startY = magicAnimationTouchYRef.current;
@@ -1761,6 +1889,10 @@ function App() {
         : magicPlayback === "ended"
           ? "重新播放"
           : "播放";
+  const magicRewindButtonLabel =
+    magicPlayback === "playing" && magicDirection === "reverse"
+      ? "暫停"
+      : "倒放";
 
   return (
     <main className="app-shell">
@@ -1808,12 +1940,22 @@ function App() {
                   : "magic-control-button"
               }
               type="button"
-              title="倒放"
-              aria-label="倒放魔法陣動畫"
+              title={magicRewindButtonLabel}
+              aria-label={`${magicRewindButtonLabel}魔法陣動畫`}
               onClick={handleMagicRewind}
               disabled={!selectedResult}
             >
-              <Play aria-hidden="true" className="magic-icon--reverse" size={18} />
+              {magicPlayback === "playing" &&
+              magicDirection === "reverse" &&
+              selectedResult ? (
+                <Pause size={18} />
+              ) : (
+                <Play
+                  aria-hidden="true"
+                  className="magic-icon--reverse"
+                  size={18}
+                />
+              )}
             </button>
             <button
               className="magic-control-button magic-control-button--primary"
@@ -1833,63 +1975,55 @@ function App() {
             </button>
           </div>
           <div className="magic-player-fields">
-            <label
-              className="select-wrap select-wrap--compact"
-              onTouchEnd={handleMagicAnimationTouchEnd}
-              onTouchStart={handleMagicAnimationTouchStart}
-              onWheel={handleMagicAnimationWheel}
+            <MarqueeSelect
+              label="模式"
+              value={magicPlaybackMode}
+              valueLabel={magicPlaybackModeLabel}
+              onChange={(value) =>
+                handleMagicPlaybackModeChange(value as MagicPlaybackMode)
+              }
+              onTouchEnd={handleMagicPlaybackModeTouchEnd}
+              onTouchStart={handleMagicPlaybackModeTouchStart}
+              onWheel={handleMagicPlaybackModeWheel}
             >
-              <span>動畫</span>
-              <select
-                value={magicAnimationIndex}
-                onChange={(event) =>
-                  handleMagicAnimationChange(Number(event.target.value))
-                }
-              >
-                {magicAnimationOptions.map((option) => (
-                  <option value={option.index} key={option.index}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label
-              className="select-wrap select-wrap--compact"
+              {MAGIC_PLAYBACK_MODES.map((mode) => (
+                <option value={mode.id} key={mode.id}>
+                  {mode.label}
+                </option>
+              ))}
+            </MarqueeSelect>
+            <MarqueeSelect
+              label="速度"
+              value={magicSpeed}
+              valueLabel={magicSpeedLabel}
+              onChange={(value) =>
+                handleMagicSpeedChange(parseMagicSpeed(value))
+              }
               onTouchEnd={handleMagicSpeedTouchEnd}
               onTouchStart={handleMagicSpeedTouchStart}
               onWheel={handleMagicSpeedWheel}
             >
-              <span>速度</span>
-              <select
-                value={magicSpeed}
-                onChange={(event) =>
-                  handleMagicSpeedChange(parseMagicSpeed(event.target.value))
-                }
-              >
-                {MAGIC_SPEED_OPTIONS.map((speed) => (
-                  <option value={speed} key={speed}>
-                    {formatMagicSpeed(speed)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="select-wrap select-wrap--compact">
-              <span>模式</span>
-              <select
-                value={magicPlaybackMode}
-                onChange={(event) =>
-                  handleMagicPlaybackModeChange(
-                    event.target.value as MagicPlaybackMode
-                  )
-                }
-              >
-                {MAGIC_PLAYBACK_MODES.map((mode) => (
-                  <option value={mode.id} key={mode.id}>
-                    {mode.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+              {MAGIC_SPEED_OPTIONS.map((speed) => (
+                <option value={speed} key={speed}>
+                  {formatMagicSpeed(speed)}
+                </option>
+              ))}
+            </MarqueeSelect>
+            <MarqueeSelect
+              label="動畫"
+              value={magicAnimationIndex}
+              valueLabel={magicAnimationLabel}
+              onChange={(value) => handleMagicAnimationChange(Number(value))}
+              onTouchEnd={handleMagicAnimationTouchEnd}
+              onTouchStart={handleMagicAnimationTouchStart}
+              onWheel={handleMagicAnimationWheel}
+            >
+              {magicAnimationOptions.map((option) => (
+                <option value={option.index} key={option.index}>
+                  {option.label}
+                </option>
+              ))}
+            </MarqueeSelect>
           </div>
         </section>
 

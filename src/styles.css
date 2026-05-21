@@ -236,7 +236,7 @@ a {
 
 .magic-player-fields {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 78px 104px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   min-width: 0;
 }
@@ -617,10 +617,16 @@ a {
   gap: 5px;
 }
 
-.select-wrap span {
+.select-wrap__label {
   color: var(--ink-soft);
   font-size: 12px;
   font-weight: 700;
+}
+
+.select-shell {
+  position: relative;
+  display: block;
+  min-width: 0;
 }
 
 .select-wrap select {
@@ -635,14 +641,88 @@ a {
   outline: none;
 }
 
+.select-shell select {
+  color: transparent;
+  cursor: pointer;
+}
+
+.select-shell select option {
+  color: var(--control-ink);
+  background: var(--input-bg);
+}
+
 .select-wrap--compact select {
   height: 34px;
   padding: 0 8px;
 }
 
+.select-marquee {
+  position: absolute;
+  top: 0;
+  right: 26px;
+  bottom: 0;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--control-ink);
+  font-size: 13px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.select-marquee__track {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.select-marquee__track > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.select-marquee__copy {
+  flex: 0 0 auto;
+}
+
+.select-wrap--marquee .select-shell:hover .select-marquee__track,
+.select-wrap--marquee .select-shell:focus-within .select-marquee__track {
+  max-width: none;
+  gap: 28px;
+  animation: select-marquee 5.2s linear infinite;
+}
+
+.select-wrap--marquee
+  .select-shell:hover
+  .select-marquee__track
+  > span:first-child,
+.select-wrap--marquee
+  .select-shell:focus-within
+  .select-marquee__track
+  > span:first-child {
+  overflow: visible;
+}
+
 .select-wrap select:focus {
   border-color: var(--blue);
   box-shadow: 0 0 0 3px rgba(38, 63, 209, 0.14);
+}
+
+@keyframes select-marquee {
+  0%,
+  16% {
+    transform: translateX(0);
+  }
+
+  86%,
+  100% {
+    transform: translateX(calc(-50% - 14px));
+  }
 }
 
 .solver-controls {
@@ -1823,11 +1903,7 @@ a {
   }
 
   .magic-player-fields {
-    grid-template-columns: minmax(0, 1fr) 78px;
-  }
-
-  .magic-player-fields .select-wrap:last-child {
-    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .result-row {
