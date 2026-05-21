@@ -157,10 +157,30 @@ const MarqueeSelect = ({
   onTouchStart,
   onWheel
 }: MarqueeSelectProps) => {
+  const rootRef = useRef<HTMLLabelElement>(null);
   const viewportRef = useRef<HTMLSpanElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
   const [marqueeShiftPx, setMarqueeShiftPx] = useState(0);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return undefined;
+
+    const preventNativeScroll = (event: Event) => {
+      event.preventDefault();
+    };
+
+    root.addEventListener("wheel", preventNativeScroll, { passive: false });
+    root.addEventListener("touchmove", preventNativeScroll, {
+      passive: false
+    });
+
+    return () => {
+      root.removeEventListener("wheel", preventNativeScroll);
+      root.removeEventListener("touchmove", preventNativeScroll);
+    };
+  }, []);
 
   useEffect(() => {
     const measure = () => {
@@ -199,6 +219,7 @@ const MarqueeSelect = ({
   return (
     <label
       className={className}
+      ref={rootRef}
       onTouchEnd={onTouchEnd}
       onTouchMove={onTouchMove}
       onTouchStart={onTouchStart}

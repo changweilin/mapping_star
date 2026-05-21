@@ -685,8 +685,7 @@ a {
   display: inline-block;
 }
 
-.select-wrap--marquee .select-shell:hover .select-marquee__track,
-.select-wrap--marquee .select-shell:focus-within .select-marquee__track {
+.select-wrap--marquee .select-marquee__track {
   max-width: none;
   overflow: visible;
   text-overflow: clip;
