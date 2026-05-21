@@ -443,7 +443,7 @@ export const MAGIC_ELEMENTS = [
 ] as const satisfies readonly MagicElement[];
 
 export const MAGIC_ANIMATION_COUNT = MAGIC_ELEMENTS.length;
-export const MAGIC_SPEED_OPTIONS = [1, 0.5, 0.254] as const;
+export const MAGIC_SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4] as const;
 
 export type MagicSpeed = (typeof MAGIC_SPEED_OPTIONS)[number];
 export type MagicElementId = (typeof MAGIC_ELEMENTS)[number]["id"];

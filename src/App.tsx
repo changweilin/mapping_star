@@ -1,6 +1,8 @@
 import {
   type KeyboardEvent,
   type PointerEvent,
+  type TouchEvent,
+  type WheelEvent,
   useEffect,
   useMemo,
   useRef,
@@ -20,7 +22,6 @@ import {
   Mountain,
   Pause,
   Play,
-  Rewind,
   Satellite,
   Search,
   Sparkles,
@@ -62,6 +63,8 @@ import {
 import { solveStarFromPois } from "./lib/solver";
 import type { FavoriteItem, LatLng, Poi, StarMode, StarResult } from "./types";
 
+type MagicPlaybackMode = "continuous" | "loop-all" | "loop-one";
+
 const DEFAULT_CENTER: LatLng = { lat: 25.033964, lng: 121.564468 };
 const MAX_RENDERED_POIS = 350;
 const MAX_RADIUS_KM = 30;
@@ -69,6 +72,11 @@ const MAGIC_POINT_DELAY_MS = 1880;
 const MAGIC_POINT_STEP_MS = 90;
 const MAGIC_POINT_DURATION_MS = 520;
 const MAGIC_TIMELINE_END_PADDING_MS = 140;
+const MAGIC_PLAYBACK_MODES = [
+  { id: "continuous", label: "連續播放" },
+  { id: "loop-all", label: "循環播放" },
+  { id: "loop-one", label: "單曲循環播放" }
+] satisfies Array<{ id: MagicPlaybackMode; label: string }>;
 
 type RadiusHandle = "inner" | "outer";
 type MagicPlayback = "playing" | "paused" | "ended";
@@ -262,8 +270,7 @@ const downloadText = (filename: string, content: string, type: string) => {
   URL.revokeObjectURL(url);
 };
 
-const formatMagicSpeed = (speed: MagicSpeed) =>
-  speed === 0.254 ? "0.254x" : `${speed}x`;
+const formatMagicSpeed = (speed: MagicSpeed) => `${speed}x`;
 
 const parseMagicSpeed = (value: string): MagicSpeed => {
   const numericValue = Number(value);
@@ -296,11 +303,40 @@ const getMagicDelayMs = (
   delayMs: number,
   durationMs: number,
   direction: MagicPlaybackDirection,
-  timelineDurationMs: number
-) =>
-  direction === "reverse"
-    ? Math.max(0, timelineDurationMs - delayMs - durationMs)
-    : delayMs;
+  timelineDurationMs: number,
+  timelinePositionMs: number
+) => {
+  const directedDelayMs =
+    direction === "reverse"
+      ? Math.max(0, timelineDurationMs - delayMs - durationMs)
+      : delayMs;
+  const directedPositionMs =
+    direction === "reverse"
+      ? Math.max(0, timelineDurationMs - timelinePositionMs)
+      : timelinePositionMs;
+
+  return directedDelayMs - directedPositionMs;
+};
+
+const clampMagicTimelinePosition = (positionMs: number, durationMs: number) =>
+  Math.max(0, Math.min(durationMs, positionMs));
+
+const getMagicBoundaryPosition = (
+  direction: MagicPlaybackDirection,
+  durationMs: number
+) => (direction === "reverse" ? durationMs : 0);
+
+const getSteppedOption = <T,>(
+  options: readonly T[],
+  value: T,
+  step: number
+) => {
+  if (options.length === 0) return value;
+  const currentIndex = Math.max(0, options.indexOf(value));
+  return options[
+    (currentIndex + step + options.length) % options.length
+  ] as T;
+};
 
 const getLayerElement = (layer: L.Layer) => {
   const pathLayer = layer as L.Layer & {
@@ -343,7 +379,8 @@ const applyMagicStrokeTiming = (
   speed: MagicSpeed,
   playback: MagicPlayback,
   direction: MagicPlaybackDirection,
-  timelineDurationMs: number
+  timelineDurationMs: number,
+  timelinePositionMs: number
 ) => {
   const element = getLayerElement(layer);
   if (!element) return;
@@ -359,7 +396,8 @@ const applyMagicStrokeTiming = (
         stroke.delayMs,
         stroke.durationMs,
         direction,
-        timelineDurationMs
+        timelineDurationMs,
+        timelinePositionMs
       ) / speed
     }ms`
   );
@@ -386,13 +424,19 @@ const applyMagicMarkerTiming = (
   speed: MagicSpeed,
   playback: MagicPlayback,
   direction: MagicPlaybackDirection,
-  timelineDurationMs: number
+  timelineDurationMs: number,
+  timelinePositionMs: number
 ) => {
   element.style.setProperty(
     "--magic-delay",
     `${
-      getMagicDelayMs(delayMs, durationMs, direction, timelineDurationMs) /
-      speed
+      getMagicDelayMs(
+        delayMs,
+        durationMs,
+        direction,
+        timelineDurationMs,
+        timelinePositionMs
+      ) / speed
     }ms`
   );
   element.style.setProperty("--magic-duration", `${durationMs / speed}ms`);
@@ -665,6 +709,9 @@ function App() {
     useState<MagicPlaybackDirection>("forward");
   const magicDirectionRef = useRef<MagicPlaybackDirection>("forward");
   const [magicSpeed, setMagicSpeed] = useState<MagicSpeed>(1);
+  const magicSpeedRef = useRef<MagicSpeed>(1);
+  const [magicPlaybackMode, setMagicPlaybackMode] =
+    useState<MagicPlaybackMode>("continuous");
   const [magicReplayKey, setMagicReplayKey] = useState(0);
   const [favorites, setFavorites] = useState<FavoriteItem[]>(() =>
     typeof window === "undefined" ? [] : loadFavorites()
@@ -672,7 +719,10 @@ function App() {
   const progressClearTimerRef = useRef<number | null>(null);
   const magicPlaybackTimerRef = useRef<number | null>(null);
   const magicPlaybackStartedAtRef = useRef<number | null>(null);
-  const magicPlaybackRemainingMsRef = useRef<number | null>(null);
+  const magicTimelineDurationMsRef = useRef(0);
+  const magicTimelinePositionMsRef = useRef(0);
+  const magicAnimationTouchYRef = useRef<number | null>(null);
+  const magicSpeedTouchYRef = useRef<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [calculationProgress, setCalculationProgress] =
     useState<CalculationProgress | null>(null);
@@ -779,28 +829,119 @@ function App() {
     window.clearTimeout(magicPlaybackTimerRef.current);
     magicPlaybackTimerRef.current = null;
   };
-  const primeMagicPlaybackTimer = (
+  const setMagicPlaybackState = (playback: MagicPlayback) => {
+    magicPlaybackRef.current = playback;
+    setMagicPlayback(playback);
+  };
+  const setMagicDirectionState = (direction: MagicPlaybackDirection) => {
+    magicDirectionRef.current = direction;
+    setMagicDirection(direction);
+  };
+  const setMagicSpeedState = (speed: MagicSpeed) => {
+    magicSpeedRef.current = speed;
+    setMagicSpeed(speed);
+  };
+  const syncMagicTimelinePosition = () => {
+    const durationMs = magicTimelineDurationMsRef.current;
+    let positionMs = magicTimelinePositionMsRef.current;
+
+    if (
+      magicPlaybackRef.current === "playing" &&
+      magicPlaybackStartedAtRef.current !== null
+    ) {
+      const elapsedMs =
+        (performance.now() - magicPlaybackStartedAtRef.current) *
+        magicSpeedRef.current;
+      positionMs +=
+        magicDirectionRef.current === "reverse" ? -elapsedMs : elapsedMs;
+    }
+
+    positionMs = clampMagicTimelinePosition(positionMs, durationMs);
+    magicTimelinePositionMsRef.current = positionMs;
+    magicPlaybackStartedAtRef.current = null;
+
+    return { durationMs, positionMs };
+  };
+  const setMagicTimeline = (
     result: StarResult,
     animationIndex: number,
-    speed: MagicSpeed
+    direction: MagicPlaybackDirection,
+    positionMs: number
   ) => {
     const strokes = makeMagicCircleStrokes(result, animationIndex);
+    const durationMs = getMagicTimelineDurationMs(result, strokes);
+
+    magicTimelineDurationMsRef.current = durationMs;
     magicPlaybackStartedAtRef.current = null;
-    magicPlaybackRemainingMsRef.current =
-      getMagicTimelineDurationMs(result, strokes) / speed +
-      MAGIC_TIMELINE_END_PADDING_MS;
+    magicTimelinePositionMsRef.current = clampMagicTimelinePosition(
+      positionMs,
+      durationMs
+    );
     clearMagicPlaybackTimer();
+
+    return durationMs;
   };
-  const restartMagicPlayback = (
+  const playMagicFrom = (
     direction: MagicPlaybackDirection,
+    positionMs?: number,
     animationIndex = magicAnimationIndex,
-    speed = magicSpeed
+    playback: MagicPlayback = "playing"
   ) => {
     if (!selectedResult) return;
-    setMagicDirection(direction);
-    primeMagicPlaybackTimer(selectedResult, animationIndex, speed);
-    setMagicPlayback("playing");
+
+    const durationMs = setMagicTimeline(
+      selectedResult,
+      animationIndex,
+      direction,
+      positionMs ?? getMagicBoundaryPosition(direction, 0)
+    );
+    if (positionMs === undefined) {
+      magicTimelinePositionMsRef.current = getMagicBoundaryPosition(
+        direction,
+        durationMs
+      );
+    }
+    setMagicDirectionState(direction);
+    setMagicPlaybackState(playback);
     setMagicReplayKey((key) => key + 1);
+  };
+  const getNextMagicAnimationIndex = (
+    currentIndex: number,
+    direction: MagicPlaybackDirection,
+    mode: MagicPlaybackMode
+  ) => {
+    if (mode === "loop-one") return currentIndex;
+
+    const nextIndex =
+      currentIndex + (direction === "forward" ? 1 : -1);
+    if (nextIndex >= 0 && nextIndex < magicAnimationOptions.length) {
+      return nextIndex;
+    }
+
+    if (mode !== "loop-all") return null;
+
+    return direction === "forward"
+      ? 0
+      : Math.max(0, magicAnimationOptions.length - 1);
+  };
+  const continueMagicPlaybackFromEndpoint = (
+    direction: MagicPlaybackDirection
+  ) => {
+    if (!selectedResult) return;
+
+    const nextAnimationIndex = getNextMagicAnimationIndex(
+      magicAnimationIndex,
+      direction,
+      magicPlaybackMode
+    );
+
+    if (nextAnimationIndex === null) {
+      setMagicPlaybackState("ended");
+      return;
+    }
+
+    setMagicAnimationIndex(nextAnimationIndex);
+    playMagicFrom(direction, undefined, nextAnimationIndex);
   };
   const setProgressStep = (percent: number, label: string) => {
     clearProgressTimer();
@@ -824,30 +965,110 @@ function App() {
   const handleMagicPlaybackToggle = () => {
     if (!selectedResult) return;
 
-    if (magicPlayback === "playing") {
-      setMagicPlayback("paused");
+    const { durationMs, positionMs } = syncMagicTimelinePosition();
+
+    if (
+      magicPlaybackRef.current === "playing" &&
+      magicDirectionRef.current === "forward"
+    ) {
+      setMagicPlaybackState("paused");
       return;
     }
 
-    if (magicPlayback === "ended") {
-      restartMagicPlayback("forward");
-      return;
-    }
-
-    setMagicPlayback("playing");
+    playMagicFrom(
+      "forward",
+      magicPlaybackRef.current === "ended" && positionMs >= durationMs
+        ? 0
+        : positionMs
+    );
   };
   const handleMagicRewind = () => {
-    restartMagicPlayback("reverse");
+    if (!selectedResult) return;
+
+    const { durationMs, positionMs } = syncMagicTimelinePosition();
+
+    if (
+      magicPlaybackRef.current === "playing" &&
+      magicDirectionRef.current === "reverse"
+    ) {
+      setMagicPlaybackState("paused");
+      return;
+    }
+
+    playMagicFrom(
+      "reverse",
+      positionMs <= 0 ? durationMs : positionMs
+    );
   };
   const handleMagicAnimationChange = (value: number) => {
     setMagicAnimationIndex(value);
-    restartMagicPlayback("forward", value);
+    playMagicFrom(magicDirectionRef.current, undefined, value);
   };
   const handleMagicSpeedChange = (value: MagicSpeed) => {
-    setMagicSpeed(value);
-    if (selectedResult) {
-      restartMagicPlayback("forward", magicAnimationIndex, value);
-    }
+    if (value === magicSpeedRef.current) return;
+
+    const playback = magicPlaybackRef.current;
+    const direction = magicDirectionRef.current;
+    const { positionMs } = syncMagicTimelinePosition();
+
+    setMagicSpeedState(value);
+
+    if (!selectedResult) return;
+
+    setMagicTimeline(selectedResult, magicAnimationIndex, direction, positionMs);
+    setMagicDirectionState(direction);
+    setMagicPlaybackState(playback);
+    setMagicReplayKey((key) => key + 1);
+  };
+  const handleMagicPlaybackModeChange = (value: MagicPlaybackMode) => {
+    setMagicPlaybackMode(value);
+  };
+  const stepMagicAnimation = (step: number) => {
+    const nextIndex = getSteppedOption(
+      magicAnimationOptions.map((option) => option.index),
+      magicAnimationIndex,
+      step
+    );
+    handleMagicAnimationChange(nextIndex);
+  };
+  const stepMagicSpeed = (step: number) => {
+    handleMagicSpeedChange(
+      getSteppedOption(MAGIC_SPEED_OPTIONS, magicSpeedRef.current, step)
+    );
+  };
+  const handleMagicAnimationWheel = (event: WheelEvent<HTMLElement>) => {
+    event.preventDefault();
+    stepMagicAnimation(event.deltaY > 0 ? 1 : -1);
+  };
+  const handleMagicSpeedWheel = (event: WheelEvent<HTMLElement>) => {
+    event.preventDefault();
+    stepMagicSpeed(event.deltaY > 0 ? 1 : -1);
+  };
+  const handleMagicAnimationTouchStart = (event: TouchEvent<HTMLElement>) => {
+    magicAnimationTouchYRef.current = event.touches[0]?.clientY ?? null;
+  };
+  const handleMagicSpeedTouchStart = (event: TouchEvent<HTMLElement>) => {
+    magicSpeedTouchYRef.current = event.touches[0]?.clientY ?? null;
+  };
+  const handleMagicAnimationTouchEnd = (event: TouchEvent<HTMLElement>) => {
+    const startY = magicAnimationTouchYRef.current;
+    magicAnimationTouchYRef.current = null;
+    if (startY === null) return;
+
+    const deltaY = (event.changedTouches[0]?.clientY ?? startY) - startY;
+    if (Math.abs(deltaY) < 18) return;
+    event.preventDefault();
+    stepMagicAnimation(deltaY < 0 ? 1 : -1);
+  };
+  const handleMagicSpeedTouchEnd = (event: TouchEvent<HTMLElement>) => {
+    const startY = magicSpeedTouchYRef.current;
+    magicSpeedTouchYRef.current = null;
+    if (startY === null) return;
+
+    const deltaY = (event.changedTouches[0]?.clientY ?? startY) - startY;
+    if (Math.abs(deltaY) < 18) return;
+    event.preventDefault();
+    stepMagicSpeed(deltaY < 0 ? 1 : -1);
   };
   const fitMapToResult = (result: StarResult) => {
     mapRef.current?.fitBounds(makeStarBounds(result).pad(0.08), {
@@ -933,9 +1154,9 @@ function App() {
 
   useEffect(() => {
     if (!selectedResult) return;
-    setMagicDirection("forward");
-    primeMagicPlaybackTimer(selectedResult, magicAnimationIndex, magicSpeed);
-    setMagicPlayback("playing");
+    setMagicTimeline(selectedResult, magicAnimationIndex, "forward", 0);
+    setMagicDirectionState("forward");
+    setMagicPlaybackState("playing");
     setMagicReplayKey((key) => key + 1);
   }, [selectedResult?.id]);
 
@@ -944,52 +1165,57 @@ function App() {
 
     if (!selectedResult) {
       magicPlaybackStartedAtRef.current = null;
-      magicPlaybackRemainingMsRef.current = null;
+      magicTimelineDurationMsRef.current = 0;
+      magicTimelinePositionMsRef.current = 0;
       return;
     }
 
     if (magicPlayback !== "playing") {
-      if (
-        magicPlayback === "paused" &&
-        magicPlaybackStartedAtRef.current !== null &&
-        magicPlaybackRemainingMsRef.current !== null
-      ) {
-        const elapsedMs = performance.now() - magicPlaybackStartedAtRef.current;
-        magicPlaybackRemainingMsRef.current = Math.max(
-          0,
-          magicPlaybackRemainingMsRef.current - elapsedMs
-        );
-        magicPlaybackStartedAtRef.current = null;
-      }
+      syncMagicTimelinePosition();
       return;
     }
 
-    if (magicPlaybackRemainingMsRef.current === null) {
-      primeMagicPlaybackTimer(selectedResult, magicAnimationIndex, magicSpeed);
+    if (magicTimelineDurationMsRef.current <= 0) {
+      const durationMs = setMagicTimeline(
+        selectedResult,
+        magicAnimationIndex,
+        magicDirection,
+        0
+      );
+      magicTimelinePositionMsRef.current = getMagicBoundaryPosition(
+        magicDirection,
+        durationMs
+      );
     }
 
-    if (
-      magicPlaybackRemainingMsRef.current !== null &&
-      magicPlaybackRemainingMsRef.current <= 0
-    ) {
+    const { durationMs, positionMs } = syncMagicTimelinePosition();
+    const timeToBoundaryMs =
+      magicDirection === "reverse"
+        ? positionMs
+        : durationMs - positionMs;
+
+    if (timeToBoundaryMs <= 0) {
+      magicTimelinePositionMsRef.current =
+        magicDirection === "reverse" ? 0 : durationMs;
       magicPlaybackStartedAtRef.current = null;
-      magicPlaybackRemainingMsRef.current = null;
-      setMagicPlayback("ended");
+      continueMagicPlaybackFromEndpoint(magicDirection);
       return;
     }
 
     magicPlaybackStartedAtRef.current = performance.now();
     magicPlaybackTimerRef.current = window.setTimeout(() => {
+      magicTimelinePositionMsRef.current =
+        magicDirection === "reverse" ? 0 : durationMs;
       magicPlaybackStartedAtRef.current = null;
-      magicPlaybackRemainingMsRef.current = null;
-      setMagicPlayback("ended");
-    }, magicPlaybackRemainingMsRef.current ?? 0);
+      continueMagicPlaybackFromEndpoint(magicDirection);
+    }, timeToBoundaryMs / magicSpeed + MAGIC_TIMELINE_END_PADDING_MS);
 
     return clearMagicPlaybackTimer;
   }, [
     magicAnimationIndex,
     magicDirection,
     magicPlayback,
+    magicPlaybackMode,
     magicReplayKey,
     magicSpeed,
     selectedResult
@@ -1125,6 +1351,12 @@ function App() {
       selectedResult,
       magicStrokes
     );
+    const timelinePositionMs = clampMagicTimelinePosition(
+      magicTimelinePositionMsRef.current,
+      timelineDurationMs
+    );
+    magicTimelineDurationMsRef.current = timelineDurationMs;
+    magicTimelinePositionMsRef.current = timelinePositionMs;
 
     magicStrokes.forEach((stroke) => {
       const layer =
@@ -1170,7 +1402,8 @@ function App() {
         magicSpeed,
         magicPlaybackRef.current,
         magicDirectionRef.current,
-        timelineDurationMs
+        timelineDurationMs,
+        timelinePositionMs
       );
     });
 
@@ -1202,7 +1435,8 @@ function App() {
           magicSpeed,
           magicPlaybackRef.current,
           magicDirectionRef.current,
-          timelineDurationMs
+          timelineDurationMs,
+          timelinePositionMs
         );
       }
     });
@@ -1521,23 +1755,12 @@ function App() {
     !selectedResult
       ? "播放"
       : magicPlayback === "playing"
-        ? "暫停"
+        ? magicDirection === "forward"
+          ? "暫停"
+          : "正放"
         : magicPlayback === "ended"
           ? "重新播放"
-          : magicDirection === "reverse"
-            ? "繼續倒放"
-            : "播放";
-  const magicStatusLabel = !selectedResult
-    ? "無結果"
-    : magicPlayback === "ended"
-      ? magicDirection === "reverse"
-        ? "已倒回起點"
-        : "已播完"
-      : magicPlayback === "playing"
-        ? magicDirection === "reverse"
-          ? "倒放中"
-          : "播放中"
-        : "已暫停";
+          : "播放";
 
   return (
     <main className="app-shell">
@@ -1573,10 +1796,6 @@ function App() {
         </header>
 
         <section className="magic-player" aria-label="魔法陣播放器">
-          <div className="magic-player-status">
-            <span>魔法陣</span>
-            <strong>{magicStatusLabel}</strong>
-          </div>
           <div
             className="magic-player-controls"
             role="group"
@@ -1594,7 +1813,7 @@ function App() {
               onClick={handleMagicRewind}
               disabled={!selectedResult}
             >
-              <Rewind size={17} />
+              <Play aria-hidden="true" className="magic-icon--reverse" size={18} />
             </button>
             <button
               className="magic-control-button magic-control-button--primary"
@@ -1604,7 +1823,9 @@ function App() {
               onClick={handleMagicPlaybackToggle}
               disabled={!selectedResult}
             >
-              {magicPlayback === "playing" && selectedResult ? (
+              {magicPlayback === "playing" &&
+              magicDirection === "forward" &&
+              selectedResult ? (
                 <Pause size={18} />
               ) : (
                 <Play size={18} />
@@ -1612,7 +1833,12 @@ function App() {
             </button>
           </div>
           <div className="magic-player-fields">
-            <label className="select-wrap select-wrap--compact">
+            <label
+              className="select-wrap select-wrap--compact"
+              onTouchEnd={handleMagicAnimationTouchEnd}
+              onTouchStart={handleMagicAnimationTouchStart}
+              onWheel={handleMagicAnimationWheel}
+            >
               <span>動畫</span>
               <select
                 value={magicAnimationIndex}
@@ -1627,7 +1853,12 @@ function App() {
                 ))}
               </select>
             </label>
-            <label className="select-wrap select-wrap--compact">
+            <label
+              className="select-wrap select-wrap--compact"
+              onTouchEnd={handleMagicSpeedTouchEnd}
+              onTouchStart={handleMagicSpeedTouchStart}
+              onWheel={handleMagicSpeedWheel}
+            >
               <span>速度</span>
               <select
                 value={magicSpeed}
@@ -1638,6 +1869,23 @@ function App() {
                 {MAGIC_SPEED_OPTIONS.map((speed) => (
                   <option value={speed} key={speed}>
                     {formatMagicSpeed(speed)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="select-wrap select-wrap--compact">
+              <span>模式</span>
+              <select
+                value={magicPlaybackMode}
+                onChange={(event) =>
+                  handleMagicPlaybackModeChange(
+                    event.target.value as MagicPlaybackMode
+                  )
+                }
+              >
+                {MAGIC_PLAYBACK_MODES.map((mode) => (
+                  <option value={mode.id} key={mode.id}>
+                    {mode.label}
                   </option>
                 ))}
               </select>

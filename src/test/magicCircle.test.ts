@@ -86,8 +86,8 @@ describe("magic circle animations", () => {
     );
   });
 
-  it("includes the requested 0.254x playback speed", () => {
-    expect(MAGIC_SPEED_OPTIONS).toContain(0.254);
+  it("offers the requested playback speeds", () => {
+    expect(MAGIC_SPEED_OPTIONS).toEqual([0.25, 0.5, 1, 2, 4]);
   });
 
   it("adds 16 sequential rune strokes around each magic circle", () => {
