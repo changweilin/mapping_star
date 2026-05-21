@@ -70,23 +70,55 @@ export const categoryForTags = (
   categories: PoiCategory[] = POI_CATEGORIES
 ) => categories.find((category) => category.matches(tags));
 
-const buildOverpassQueryForFilters = (
-  center: LatLng,
-  radiusMeters: number,
+const buildAroundStatements = (
+  radius: number,
+  lat: string,
+  lng: string,
   filters: string[]
-) => {
-  const radius = Math.round(radiusMeters);
-  const lat = center.lat.toFixed(6);
-  const lng = center.lng.toFixed(6);
-  const statements = filters.flatMap((filter) =>
+) =>
+  filters.flatMap((filter) =>
     OVERPASS_ELEMENT_TYPES.map(
       (type) => `${type}(around:${radius},${lat},${lng})${filter};`
     )
   );
 
+const formatQueryStatements = (statements: string[], indent = "  ") =>
+  statements.map((statement) => `${indent}${statement}`).join("\n");
+
+const buildOverpassQueryForFilters = (
+  center: LatLng,
+  radiusMeters: number,
+  filters: string[],
+  innerRadiusMeters = 0
+) => {
+  const radius = Math.round(radiusMeters);
+  const innerRadius = Math.max(
+    0,
+    Math.min(Math.round(innerRadiusMeters), radius - 1)
+  );
+  const lat = center.lat.toFixed(6);
+  const lng = center.lng.toFixed(6);
+  const outerStatements = buildAroundStatements(radius, lat, lng, filters);
+
+  if (innerRadius === 0) {
+    return `[out:json][timeout:35];
+(
+${formatQueryStatements(outerStatements)}
+);
+out center ${MAX_OVERPASS_RESULTS};`;
+  }
+
+  const innerStatements = buildAroundStatements(innerRadius, lat, lng, filters);
+
   return `[out:json][timeout:35];
 (
-${statements.map((statement) => `  ${statement}`).join("\n")}
+  (
+${formatQueryStatements(outerStatements, "    ")}
+  );
+  -
+  (
+${formatQueryStatements(innerStatements, "    ")}
+  );
 );
 out center ${MAX_OVERPASS_RESULTS};`;
 };
@@ -94,12 +126,14 @@ out center ${MAX_OVERPASS_RESULTS};`;
 export const buildOverpassQuery = (
   center: LatLng,
   radiusMeters: number,
-  categories: PoiCategory[]
+  categories: PoiCategory[],
+  innerRadiusMeters = 0
 ) =>
   buildOverpassQueryForFilters(
     center,
     radiusMeters,
-    categories.flatMap((category) => category.overpassFilters)
+    categories.flatMap((category) => category.overpassFilters),
+    innerRadiusMeters
   );
 
 export const parseOverpassElements = (
@@ -234,15 +268,22 @@ const fetchOverpassElements = async (query: string) => {
 const fetchOverpassElementsForFilters = (
   center: LatLng,
   radiusMeters: number,
-  filters: string[]
+  filters: string[],
+  innerRadiusMeters = 0
 ) =>
   fetchOverpassElements(
-    buildOverpassQueryForFilters(center, radiusMeters, filters)
+    buildOverpassQueryForFilters(
+      center,
+      radiusMeters,
+      filters,
+      innerRadiusMeters
+    )
   );
 
 const fetchCategoryElements = async (
   center: LatLng,
   radiusMeters: number,
+  innerRadiusMeters: number,
   category: PoiCategory
 ): Promise<FetchCategoryElementsResult> => {
   try {
@@ -250,7 +291,8 @@ const fetchCategoryElements = async (
       elements: await fetchOverpassElementsForFilters(
         center,
         radiusMeters,
-        category.overpassFilters
+        category.overpassFilters,
+        innerRadiusMeters
       ),
       warnings: []
     };
@@ -266,9 +308,12 @@ const fetchCategoryElements = async (
     for (const filter of category.overpassFilters) {
       try {
         elements.push(
-          ...(await fetchOverpassElementsForFilters(center, radiusMeters, [
-            filter
-          ]))
+          ...(await fetchOverpassElementsForFilters(
+            center,
+            radiusMeters,
+            [filter],
+            innerRadiusMeters
+          ))
         );
       } catch (filterError) {
         failedFilters += 1;
@@ -307,10 +352,24 @@ const formatCategoryFailure = (category: PoiCategory, error: unknown) => {
   return `${category.label}：${details}`;
 };
 
+const filterPoisByRadiusRange = (
+  pois: Poi[],
+  innerRadiusMeters: number,
+  outerRadiusMeters: number
+) => {
+  const innerRadius = Math.max(0, innerRadiusMeters);
+  return pois.filter(
+    (poi) =>
+      poi.distanceMeters >= innerRadius &&
+      poi.distanceMeters <= outerRadiusMeters
+  );
+};
+
 export const fetchPoisDetailed = async (
   center: LatLng,
   radiusMeters: number,
-  categories: PoiCategory[]
+  categories: PoiCategory[],
+  innerRadiusMeters = 0
 ): Promise<FetchPoisResult> => {
   if (categories.length === 0) {
     throw new Error("請至少選擇一種目標類別。");
@@ -322,7 +381,12 @@ export const fetchPoisDetailed = async (
 
   for (const category of categories) {
     try {
-      const result = await fetchCategoryElements(center, radiusMeters, category);
+      const result = await fetchCategoryElements(
+        center,
+        radiusMeters,
+        innerRadiusMeters,
+        category
+      );
       elements.push(...result.elements);
       partialWarnings.push(...result.warnings);
     } catch (error) {
@@ -353,7 +417,11 @@ export const fetchPoisDetailed = async (
   }
 
   return {
-    pois: parseOverpassElements(elements, center, categories),
+    pois: filterPoisByRadiusRange(
+      parseOverpassElements(elements, center, categories),
+      innerRadiusMeters,
+      radiusMeters
+    ),
     warnings
   };
 };
@@ -361,7 +429,11 @@ export const fetchPoisDetailed = async (
 export const fetchPois = async (
   center: LatLng,
   radiusMeters: number,
-  categories: PoiCategory[]
-) => (await fetchPoisDetailed(center, radiusMeters, categories)).pois;
+  categories: PoiCategory[],
+  innerRadiusMeters = 0
+) =>
+  (
+    await fetchPoisDetailed(center, radiusMeters, categories, innerRadiusMeters)
+  ).pois;
 
 export const overpassResultLimit = MAX_OVERPASS_RESULTS;

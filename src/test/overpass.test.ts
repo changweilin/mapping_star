@@ -31,6 +31,19 @@ describe("overpass helpers", () => {
     expect(query).not.toContain('["religion"]');
   });
 
+  it("builds a ring query when an inner radius is provided", () => {
+    const query = buildOverpassQuery(
+      { lat: 25, lng: 121 },
+      1000,
+      [mustCategory("religion")],
+      300
+    );
+
+    expect(query).toContain("around:1000,25.000000,121.000000");
+    expect(query).toContain("around:300,25.000000,121.000000");
+    expect(query).toContain("\n  -\n");
+  });
+
   it("builds a high-rise commercial building query", () => {
     const query = buildOverpassQuery(
       { lat: 25, lng: 121 },
@@ -281,6 +294,47 @@ describe("overpass helpers", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(pois).toHaveLength(1);
     expect(pois[0].name).toBe("Temple");
+  });
+
+  it("keeps only POIs inside the requested ring after parsing", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          elements: [
+            {
+              type: "node",
+              id: 1,
+              lat: 25,
+              lon: 121,
+              tags: {
+                name: "Inner temple",
+                amenity: "place_of_worship"
+              }
+            },
+            {
+              type: "node",
+              id: 2,
+              lat: 25.006,
+              lon: 121,
+              tags: {
+                name: "Ring temple",
+                amenity: "place_of_worship"
+              }
+            }
+          ]
+        }),
+        { status: 200 }
+      )
+    );
+
+    const pois = await fetchPois(
+      { lat: 25, lng: 121 },
+      1000,
+      [mustCategory("religion")],
+      500
+    );
+
+    expect(pois.map((poi) => poi.name)).toEqual(["Ring temple"]);
   });
 
   it("queries selected categories separately", async () => {

@@ -4,7 +4,8 @@ import type { StarMode } from "../types";
 export const SETTINGS_STORAGE_KEY = "mapping-star:settings";
 
 export interface AppSettings {
-  radiusKm: number;
+  innerRadiusKm: number;
+  outerRadiusKm: number;
   starMode: StarMode;
   angleToleranceDeg: number;
   candidatesPerSlot: number;
@@ -14,7 +15,8 @@ export interface AppSettings {
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
-  radiusKm: 30,
+  innerRadiusKm: 0,
+  outerRadiusKm: 30,
   starMode: 5,
   angleToleranceDeg: 36,
   candidatesPerSlot: 8,
@@ -44,15 +46,28 @@ const parseCategoryIds = (value: unknown) => {
 };
 
 export const normalizeSettings = (value: unknown): AppSettings => {
-  const source =
+  const source: Partial<AppSettings> & { radiusKm?: unknown } =
     value && typeof value === "object"
-      ? (value as Partial<AppSettings>)
+      ? (value as Partial<AppSettings> & { radiusKm?: unknown })
       : DEFAULT_APP_SETTINGS;
   const starMode = parseStarMode(source.starMode);
   const maxAngleToleranceDeg = starMode === 5 ? 36 : 30;
+  const outerRadiusKm = clampNumber(
+    source.outerRadiusKm ?? source.radiusKm,
+    1,
+    30,
+    DEFAULT_APP_SETTINGS.outerRadiusKm
+  );
+  const innerRadiusKm = clampNumber(
+    source.innerRadiusKm,
+    0,
+    outerRadiusKm - 1,
+    DEFAULT_APP_SETTINGS.innerRadiusKm
+  );
 
   return {
-    radiusKm: clampNumber(source.radiusKm, 1, 30, DEFAULT_APP_SETTINGS.radiusKm),
+    innerRadiusKm,
+    outerRadiusKm,
     starMode,
     angleToleranceDeg: clampNumber(
       source.angleToleranceDeg,
@@ -95,4 +110,3 @@ export const saveSettings = (settings: AppSettings) => {
     JSON.stringify(normalizeSettings(settings))
   );
 };
-

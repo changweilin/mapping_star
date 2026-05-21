@@ -7,8 +7,12 @@ import type { Poi } from "../types";
 const center = { lat: 25.033964, lng: 121.564468 };
 const category = POI_CATEGORIES[0];
 
-const makePoi = (index: number, bearing: number): Poi => {
-  const point = destinationPoint(center, 10000, bearing);
+const makePoi = (
+  index: number,
+  bearing: number,
+  distanceMeters = 10000
+): Poi => {
+  const point = destinationPoint(center, distanceMeters, bearing);
   return {
     id: `node/${index}`,
     osmType: "node",
@@ -65,6 +69,25 @@ describe("star solver", () => {
 
     expect(results).toHaveLength(1);
     expect(results[0].points).toHaveLength(5);
+  });
+
+  it("excludes points inside the inner radius", () => {
+    const innerPois = [0, 72, 144, 216, 288].map((bearing, index) =>
+      makePoi(index, bearing, 5000)
+    );
+    const ringPois = [0, 72, 144, 216, 288].map((bearing, index) =>
+      makePoi(index + 10, bearing, 10000)
+    );
+
+    const results = solveStarFromPois([...innerPois, ...ringPois], {
+      mode: 5,
+      center,
+      innerRadiusMeters: 8000,
+      radiusMeters: 15000
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].points.every((point) => point.osmId >= 10)).toBe(true);
   });
 
   it("does not let five-point angle tolerance overlap neighboring slots", () => {

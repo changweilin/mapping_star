@@ -10,6 +10,7 @@ interface SolveOptions {
   mode: StarMode;
   center: LatLng;
   radiusMeters: number;
+  innerRadiusMeters?: number;
   maxResults?: number;
   angleToleranceMultiplier?: number;
   angleToleranceDeg?: number;
@@ -67,7 +68,8 @@ const cartesianUnique = (
 const evaluate = (
   points: Poi[],
   targets: number[],
-  radiusMeters: number
+  outerRadiusMeters: number,
+  innerRadiusMeters: number
 ): Evaluation => {
   const radii = points.map((point) => point.distanceMeters);
   const radiusMeanMeters =
@@ -92,10 +94,18 @@ const evaluate = (
     angleErrors.length;
   const radialScore =
     radiusMeanMeters > 0 ? Math.min(1.5, radiusStdMeters / radiusMeanMeters) : 1;
-  const radiusUsePenalty = Math.max(0, 1 - radiusMeanMeters / radiusMeters);
+  const radiusRangeMeters = Math.max(1, outerRadiusMeters - innerRadiusMeters);
+  const targetRadiusMeters =
+    innerRadiusMeters > 0
+      ? innerRadiusMeters + radiusRangeMeters / 2
+      : outerRadiusMeters;
+  const radiusPositionPenalty = Math.min(
+    1,
+    Math.abs(radiusMeanMeters - targetRadiusMeters) / radiusRangeMeters
+  );
 
   return {
-    score: angleScore * 0.56 + radialScore * 0.34 + radiusUsePenalty * 0.1,
+    score: angleScore * 0.56 + radialScore * 0.34 + radiusPositionPenalty * 0.1,
     radiusMeanMeters,
     radiusStdMeters,
     angleErrorDeg
@@ -141,6 +151,7 @@ export const solveStarFromPois = (
     mode,
     center,
     radiusMeters,
+    innerRadiusMeters = 0,
     maxResults = 5,
     angleToleranceMultiplier = 1,
     angleToleranceDeg,
@@ -149,9 +160,10 @@ export const solveStarFromPois = (
     minDistanceMeters = 30
   }: SolveOptions
 ): StarResult[] => {
+  const minimumRadiusMeters = Math.max(minDistanceMeters, innerRadiusMeters);
   const prepared = preparePois(pois, center).filter(
     (poi) =>
-      poi.distanceMeters > minDistanceMeters &&
+      poi.distanceMeters >= minimumRadiusMeters &&
       poi.distanceMeters <= radiusMeters
   );
 
@@ -195,7 +207,12 @@ export const solveStarFromPois = (
     if (slots.some((slot) => slot.length === 0)) continue;
 
     cartesianUnique(slots, (points) => {
-      const evaluated = evaluate(points, targets, radiusMeters);
+      const evaluated = evaluate(
+        points,
+        targets,
+        radiusMeters,
+        innerRadiusMeters
+      );
       insertBest(
         results,
         {

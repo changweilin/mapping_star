@@ -202,6 +202,78 @@ a {
   text-align: right;
 }
 
+.range-field {
+  display: grid;
+  gap: 7px;
+}
+
+.range-label,
+.range-hints {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.range-label span,
+.range-hints span {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.range-label strong {
+  font-size: 13px;
+}
+
+.dual-range {
+  position: relative;
+  height: 32px;
+  touch-action: none;
+}
+
+.dual-range__track {
+  position: absolute;
+  right: 0;
+  left: 0;
+  top: 50%;
+  height: 6px;
+  overflow: hidden;
+  background: #dfe5ec;
+  border-radius: 999px;
+  transform: translateY(-50%);
+}
+
+.dual-range__track span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--blue);
+}
+
+.dual-range__handle {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  background: #ffffff;
+  border: 3px solid var(--blue);
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(30, 40, 55, 0.18);
+  cursor: grab;
+  transform: translate(-50%, -50%);
+}
+
+.dual-range__handle:focus-visible {
+  outline: 3px solid rgba(38, 63, 209, 0.22);
+  outline-offset: 3px;
+}
+
+.dual-range__handle:active {
+  cursor: grabbing;
+}
+
 .coordinate {
   margin: 0;
   padding: 8px 10px;
@@ -494,19 +566,55 @@ a {
 
 .favorite-row {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) 30px;
+  grid-template-columns: minmax(0, 1fr) 30px;
   gap: 8px;
   align-items: center;
-  min-height: 38px;
-  padding: 6px 8px;
+  min-height: 46px;
+  padding: 4px;
   background: var(--panel-soft);
   border-radius: 6px;
 }
 
-.favorite-row span {
+.favorite-restore {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  min-height: 38px;
+  padding: 4px;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+}
+
+.favorite-restore:hover,
+.favorite-restore:focus-visible {
+  background: #e9eef5;
+}
+
+.favorite-kind {
   color: var(--green);
   font-size: 12px;
   font-weight: 800;
+}
+
+.favorite-summary {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.favorite-summary small {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .map-wrap {

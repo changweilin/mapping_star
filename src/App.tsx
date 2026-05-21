@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  type PointerEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import L from "leaflet";
 import {
   Crosshair,
@@ -36,6 +43,40 @@ import type { FavoriteItem, LatLng, Poi, StarMode, StarResult } from "./types";
 
 const DEFAULT_CENTER: LatLng = { lat: 25.033964, lng: 121.564468 };
 const MAX_RENDERED_POIS = 350;
+const MAX_RADIUS_KM = 30;
+
+type RadiusHandle = "inner" | "outer";
+
+const formatCoordinate = ({ lat, lng }: LatLng) =>
+  `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+
+const makeAutoSolveKey = ({
+  mode,
+  center,
+  innerRadiusKm,
+  outerRadiusKm,
+  angleToleranceDeg,
+  candidatesPerSlot,
+  rotationStepDeg
+}: {
+  mode: StarMode;
+  center: LatLng;
+  innerRadiusKm: number;
+  outerRadiusKm: number;
+  angleToleranceDeg: number;
+  candidatesPerSlot: number;
+  rotationStepDeg: number;
+}) =>
+  [
+    mode,
+    center.lat,
+    center.lng,
+    innerRadiusKm,
+    outerRadiusKm,
+    angleToleranceDeg,
+    candidatesPerSlot,
+    rotationStepDeg
+  ].join("|");
 
 const makeCenterIcon = () =>
   L.divIcon({
@@ -59,21 +100,36 @@ const downloadText = (filename: string, content: string, type: string) => {
 
 const makeSectorPolygon = (
   center: LatLng,
-  radiusMeters: number,
+  innerRadiusMeters: number,
+  outerRadiusMeters: number,
   startDeg: number,
   endDeg: number
 ) => {
-  const points: L.LatLngExpression[] = [[center.lat, center.lng]];
+  const points: L.LatLngExpression[] = [];
   const span = normalizeDegrees(endDeg - startDeg) || 360;
   const steps = Math.max(8, Math.ceil(span / 6));
+  const hasInnerRadius = innerRadiusMeters > 0;
+
+  if (!hasInnerRadius) {
+    points.push([center.lat, center.lng]);
+  }
 
   for (let index = 0; index <= steps; index += 1) {
     const bearing = startDeg + (span * index) / steps;
-    const point = destinationPoint(center, radiusMeters, bearing);
+    const point = destinationPoint(center, outerRadiusMeters, bearing);
     points.push([point.lat, point.lng]);
   }
 
-  points.push([center.lat, center.lng]);
+  if (hasInnerRadius) {
+    for (let index = steps; index >= 0; index -= 1) {
+      const bearing = startDeg + (span * index) / steps;
+      const point = destinationPoint(center, innerRadiusMeters, bearing);
+      points.push([point.lat, point.lng]);
+    }
+  } else {
+    points.push([center.lat, center.lng]);
+  }
+
   return points;
 };
 
@@ -90,6 +146,149 @@ const ResultMetric = ({
   </span>
 );
 
+const RadiusRangeControl = ({
+  innerRadiusKm,
+  outerRadiusKm,
+  onInnerChange,
+  onOuterChange
+}: {
+  innerRadiusKm: number;
+  outerRadiusKm: number;
+  onInnerChange: (value: number) => void;
+  onOuterChange: (value: number) => void;
+}) => {
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const [dragging, setDragging] = useState<RadiusHandle | null>(null);
+  const innerPercent = (innerRadiusKm / MAX_RADIUS_KM) * 100;
+  const outerPercent = (outerRadiusKm / MAX_RADIUS_KM) * 100;
+
+  const clampRadius = (handle: RadiusHandle, value: number) =>
+    handle === "inner"
+      ? Math.max(0, Math.min(value, outerRadiusKm - 1))
+      : Math.min(MAX_RADIUS_KM, Math.max(value, innerRadiusKm + 1));
+
+  const updateRadius = (handle: RadiusHandle, value: number) => {
+    const nextValue = clampRadius(handle, value);
+    if (handle === "inner") {
+      onInnerChange(nextValue);
+    } else {
+      onOuterChange(nextValue);
+    }
+  };
+
+  const valueFromPointer = (clientX: number) => {
+    const track = trackRef.current;
+    if (!track) return 0;
+    const rect = track.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    return Math.round(ratio * MAX_RADIUS_KM);
+  };
+
+  const updateFromPointer = (
+    handle: RadiusHandle,
+    event: PointerEvent<HTMLElement>
+  ) => {
+    updateRadius(handle, valueFromPointer(event.clientX));
+  };
+
+  const handleTrackPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    const value = valueFromPointer(event.clientX);
+    const handle =
+      Math.abs(value - innerRadiusKm) <= Math.abs(value - outerRadiusKm)
+        ? "inner"
+        : "outer";
+    updateRadius(handle, value);
+  };
+
+  const handlePointerDown = (
+    handle: RadiusHandle,
+    event: PointerEvent<HTMLSpanElement>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragging(handle);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    updateFromPointer(handle, event);
+  };
+
+  const handlePointerMove = (
+    handle: RadiusHandle,
+    event: PointerEvent<HTMLSpanElement>
+  ) => {
+    if (dragging === handle) updateFromPointer(handle, event);
+  };
+
+  const handlePointerUp = (event: PointerEvent<HTMLSpanElement>) => {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    setDragging(null);
+  };
+
+  const handleKeyDown = (
+    handle: RadiusHandle,
+    event: KeyboardEvent<HTMLSpanElement>
+  ) => {
+    const currentValue = handle === "inner" ? innerRadiusKm : outerRadiusKm;
+    const step = event.shiftKey ? 5 : 1;
+    const keyActions: Record<string, number> = {
+      ArrowLeft: currentValue - step,
+      ArrowDown: currentValue - step,
+      ArrowRight: currentValue + step,
+      ArrowUp: currentValue + step,
+      Home: handle === "inner" ? 0 : innerRadiusKm + 1,
+      End: handle === "inner" ? outerRadiusKm - 1 : MAX_RADIUS_KM
+    };
+
+    if (!(event.key in keyActions)) return;
+    event.preventDefault();
+    updateRadius(handle, keyActions[event.key]);
+  };
+
+  return (
+    <div
+      className="dual-range"
+      ref={trackRef}
+      onPointerDown={handleTrackPointerDown}
+    >
+      <div className="dual-range__track" aria-hidden="true">
+        <span
+          style={{
+            left: `${innerPercent}%`,
+            right: `${100 - outerPercent}%`
+          }}
+        />
+      </div>
+      <span
+        aria-label="內徑"
+        aria-valuemax={outerRadiusKm - 1}
+        aria-valuemin={0}
+        aria-valuenow={innerRadiusKm}
+        className="dual-range__handle"
+        role="slider"
+        tabIndex={0}
+        style={{ left: `${innerPercent}%` }}
+        onKeyDown={(event) => handleKeyDown("inner", event)}
+        onPointerDown={(event) => handlePointerDown("inner", event)}
+        onPointerMove={(event) => handlePointerMove("inner", event)}
+        onPointerUp={handlePointerUp}
+      />
+      <span
+        aria-label="外徑"
+        aria-valuemax={MAX_RADIUS_KM}
+        aria-valuemin={innerRadiusKm + 1}
+        aria-valuenow={outerRadiusKm}
+        className="dual-range__handle"
+        role="slider"
+        tabIndex={0}
+        style={{ left: `${outerPercent}%` }}
+        onKeyDown={(event) => handleKeyDown("outer", event)}
+        onPointerDown={(event) => handlePointerDown("outer", event)}
+        onPointerMove={(event) => handlePointerMove("outer", event)}
+        onPointerUp={handlePointerUp}
+      />
+    </div>
+  );
+};
+
 function App() {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -97,13 +296,19 @@ function App() {
   const poiLayerRef = useRef<L.LayerGroup | null>(null);
   const starLayerRef = useRef<L.LayerGroup | null>(null);
   const sectorLayerRef = useRef<L.LayerGroup | null>(null);
+  const skipNextAutoSolveRef = useRef<string | null>(null);
   const [initialSettings] = useState(() =>
     typeof window === "undefined" ? DEFAULT_APP_SETTINGS : loadSettings()
   );
 
   const [center, setCenter] = useState<LatLng>(DEFAULT_CENTER);
   const [searchText, setSearchText] = useState("");
-  const [radiusKm, setRadiusKm] = useState(initialSettings.radiusKm);
+  const [innerRadiusKm, setInnerRadiusKm] = useState(
+    initialSettings.innerRadiusKm
+  );
+  const [outerRadiusKm, setOuterRadiusKm] = useState(
+    initialSettings.outerRadiusKm
+  );
   const [starMode, setStarMode] = useState<StarMode>(
     initialSettings.starMode
   );
@@ -141,7 +346,17 @@ function App() {
   );
 
   const selectedResult = results[selectedResultIndex] ?? null;
-  const radiusMeters = radiusKm * 1000;
+  const innerRadiusMeters = innerRadiusKm * 1000;
+  const outerRadiusMeters = outerRadiusKm * 1000;
+  const visiblePois = useMemo(
+    () =>
+      pois.filter(
+        (poi) =>
+          poi.distanceMeters >= innerRadiusMeters &&
+          poi.distanceMeters <= outerRadiusMeters
+      ),
+    [innerRadiusMeters, outerRadiusMeters, pois]
+  );
   const maxAngleToleranceDeg = starMode === 5 ? 36 : 30;
   const effectiveAngleToleranceDeg = Math.min(
     angleToleranceDeg,
@@ -151,7 +366,8 @@ function App() {
     () => ({
       mode: starMode,
       center,
-      radiusMeters,
+      radiusMeters: outerRadiusMeters,
+      innerRadiusMeters,
       angleToleranceDeg: effectiveAngleToleranceDeg,
       candidatesPerSlot,
       rotationStepDeg
@@ -160,11 +376,46 @@ function App() {
       candidatesPerSlot,
       center,
       effectiveAngleToleranceDeg,
-      radiusMeters,
+      innerRadiusMeters,
+      outerRadiusMeters,
       rotationStepDeg,
       starMode
     ]
   );
+  const autoSolveKey = useMemo(
+    () =>
+      makeAutoSolveKey({
+        mode: starMode,
+        center,
+        innerRadiusKm,
+        outerRadiusKm,
+        angleToleranceDeg: effectiveAngleToleranceDeg,
+        candidatesPerSlot,
+        rotationStepDeg
+      }),
+    [
+      candidatesPerSlot,
+      center,
+      effectiveAngleToleranceDeg,
+      innerRadiusKm,
+      outerRadiusKm,
+      rotationStepDeg,
+      starMode
+    ]
+  );
+  const radiusRangeLabel = `${innerRadiusKm}–${outerRadiusKm} km`;
+  const handleInnerRadiusChange = (value: number) => {
+    setInnerRadiusKm(Math.max(0, Math.min(value, outerRadiusKm - 1)));
+  };
+  const handleOuterRadiusChange = (value: number) => {
+    setOuterRadiusKm(Math.min(30, Math.max(value, innerRadiusKm + 1)));
+  };
+  const countPoisInCurrentRange = (items: Poi[]) =>
+    items.filter(
+      (poi) =>
+        poi.distanceMeters >= innerRadiusMeters &&
+        poi.distanceMeters <= outerRadiusMeters
+    ).length;
 
   useEffect(() => {
     if (!mapElementRef.current || mapRef.current) return;
@@ -208,7 +459,8 @@ function App() {
 
   useEffect(() => {
     saveSettings({
-      radiusKm,
+      innerRadiusKm,
+      outerRadiusKm,
       starMode,
       angleToleranceDeg: effectiveAngleToleranceDeg,
       candidatesPerSlot,
@@ -219,7 +471,8 @@ function App() {
   }, [
     candidatesPerSlot,
     effectiveAngleToleranceDeg,
-    radiusKm,
+    innerRadiusKm,
+    outerRadiusKm,
     rotationStepDeg,
     selectedCategoryIds,
     showSectors,
@@ -232,7 +485,7 @@ function App() {
     group.clearLayers();
 
     L.circle([center.lat, center.lng], {
-      radius: radiusMeters,
+      radius: outerRadiusMeters,
       color: "#44546a",
       weight: 1,
       opacity: 0.65,
@@ -240,17 +493,29 @@ function App() {
       fillOpacity: 0.05
     }).addTo(group);
 
+    if (innerRadiusMeters > 0) {
+      L.circle([center.lat, center.lng], {
+        radius: innerRadiusMeters,
+        color: "#df8a1f",
+        weight: 1,
+        opacity: 0.8,
+        dashArray: "5 5",
+        fillColor: "#ffffff",
+        fillOpacity: 0.04
+      }).addTo(group);
+    }
+
     L.marker([center.lat, center.lng], { icon: makeCenterIcon() })
       .bindTooltip("中心點", { direction: "top" })
       .addTo(group);
-  }, [center, radiusMeters]);
+  }, [center, innerRadiusMeters, outerRadiusMeters]);
 
   useEffect(() => {
     const group = poiLayerRef.current;
     if (!group) return;
     group.clearLayers();
 
-    pois.slice(0, MAX_RENDERED_POIS).forEach((poi) => {
+    visiblePois.slice(0, MAX_RENDERED_POIS).forEach((poi) => {
       const marker = L.circleMarker([poi.lat, poi.lng], {
         radius: 5,
         color: poi.categoryColor,
@@ -265,7 +530,7 @@ function App() {
       marker.on("click", () => setSelectedPoi(poi));
       marker.addTo(group);
     });
-  }, [pois]);
+  }, [visiblePois]);
 
   useEffect(() => {
     const group = sectorLayerRef.current;
@@ -280,7 +545,8 @@ function App() {
       L.polygon(
         makeSectorPolygon(
           selectedResult.center,
-          radiusMeters,
+          innerRadiusMeters,
+          outerRadiusMeters,
           target - sectorHalfWidth,
           target + sectorHalfWidth
         ),
@@ -294,7 +560,13 @@ function App() {
         }
       ).addTo(group);
     }
-  }, [effectiveAngleToleranceDeg, radiusMeters, selectedResult, showSectors]);
+  }, [
+    effectiveAngleToleranceDeg,
+    innerRadiusMeters,
+    outerRadiusMeters,
+    selectedResult,
+    showSectors
+  ]);
 
   useEffect(() => {
     const group = starLayerRef.current;
@@ -337,37 +609,50 @@ function App() {
   useEffect(() => {
     if (!selectedResult || !mapRef.current) return;
     const bounds = L.latLngBounds(
-      selectedResult.points.map((point) => [point.lat, point.lng])
+      [
+        [selectedResult.center.lat, selectedResult.center.lng],
+        ...selectedResult.points.map((point) => [point.lat, point.lng])
+      ] as L.LatLngExpression[]
     );
     mapRef.current.fitBounds(bounds.pad(0.2), { maxZoom: 12 });
   }, [selectedResult?.id]);
 
   useEffect(() => {
+    if (skipNextAutoSolveRef.current) {
+      const shouldSkip = skipNextAutoSolveRef.current === autoSolveKey;
+      skipNextAutoSolveRef.current = null;
+      if (shouldSkip) return;
+    }
+
     if (pois.length === 0) return;
+
     const nextResults = solveStarFromPois(pois, solverParams);
     setResults(nextResults);
     setSelectedResultIndex(0);
     if (nextResults.length === 0) {
-      setStatus(`目前 ${pois.length} 個候選點不足以形成穩定的星形。`);
+      setStatus(
+        `目前 ${countPoisInCurrentRange(pois)} 個範圍內候選點不足以形成穩定的星形。`
+      );
     }
-  }, [solverParams]);
+  }, [autoSolveKey, solverParams]);
 
   const runSolver = (nextPois = pois) => {
     const nextResults = solveStarFromPois(nextPois, solverParams);
+    const eligiblePoiCount = countPoisInCurrentRange(nextPois);
     setResults(nextResults);
     setSelectedResultIndex(0);
 
     if (nextResults.length === 0) {
-      setStatus(`找到 ${nextPois.length} 個候選點，但沒有可用的星形組合。`);
+      setStatus(`找到 ${eligiblePoiCount} 個範圍內候選點，但沒有可用的星形組合。`);
       return nextResults;
     }
 
     setStatus(
-      `找到 ${nextPois.length} 個候選點，已產生 ${nextResults.length} 組${
+      `找到 ${eligiblePoiCount} 個範圍內候選點，已產生 ${nextResults.length} 組${
         starMode === 5 ? "五芒星" : "六芒星"
       }候選。角度容許 ±${effectiveAngleToleranceDeg.toFixed(
         0
-      )}°，每角 ${candidatesPerSlot} 點。`
+      )}°，每角 ${candidatesPerSlot} 點，搜尋範圍 ${radiusRangeLabel}。`
     );
 
     return nextResults;
@@ -425,8 +710,9 @@ function App() {
     try {
       const { pois: nextPois, warnings } = await fetchPoisDetailed(
         center,
-        radiusMeters,
-        selectedCategories
+        outerRadiusMeters,
+        selectedCategories,
+        innerRadiusMeters
       );
       setPois(nextPois);
       const nextResults = runSolver(nextPois);
@@ -434,7 +720,7 @@ function App() {
 
       if (nextPois.length >= overpassResultLimit) {
         notes.push(
-          `已讀取前 ${overpassResultLimit} 筆資料；若想更精準，請縮小半徑或減少類別。`
+          `已讀取前 ${overpassResultLimit} 筆資料；若想更精準，請縮小外徑、提高內徑或減少類別。`
         );
       }
 
@@ -474,6 +760,75 @@ function App() {
 
   const removeFavorite = (favoriteId: string) => {
     setFavorites((current) => current.filter((item) => item.id !== favoriteId));
+  };
+
+  const restoreFavorite = (favorite: FavoriteItem) => {
+    setError("");
+
+    if (favorite.type === "poi") {
+      const nextCenter = {
+        lat: favorite.poi.lat,
+        lng: favorite.poi.lng
+      };
+      setCenter(nextCenter);
+      setSelectedPoi(favorite.poi);
+      mapRef.current?.setView([nextCenter.lat, nextCenter.lng], 15);
+      setStatus(`已移至我的最愛：${favorite.name}`);
+      return;
+    }
+
+    const restoredStar = favorite.star;
+    const maxPointDistanceKm = Math.min(
+      MAX_RADIUS_KM,
+      Math.max(
+        1,
+        Math.ceil(
+          Math.max(
+            restoredStar.radiusMeanMeters,
+            ...restoredStar.points.map((point) => point.distanceMeters)
+          ) / 1000
+        )
+      )
+    );
+    const restoredBounds = L.latLngBounds(
+      [
+        [restoredStar.center.lat, restoredStar.center.lng],
+        ...restoredStar.points.map((point) => [point.lat, point.lng])
+      ] as L.LatLngExpression[]
+    );
+    const nextInnerRadiusKm = Math.min(
+      innerRadiusKm,
+      maxPointDistanceKm - 1
+    );
+    const nextOuterRadiusKm = Math.max(outerRadiusKm, maxPointDistanceKm);
+    const nextAngleToleranceDeg = Math.min(
+      angleToleranceDeg,
+      restoredStar.mode === 5 ? 36 : 30
+    );
+
+    skipNextAutoSolveRef.current = makeAutoSolveKey({
+      mode: restoredStar.mode,
+      center: restoredStar.center,
+      innerRadiusKm: nextInnerRadiusKm,
+      outerRadiusKm: nextOuterRadiusKm,
+      angleToleranceDeg: nextAngleToleranceDeg,
+      candidatesPerSlot,
+      rotationStepDeg
+    });
+    setCenter(restoredStar.center);
+    setStarMode(restoredStar.mode);
+    setInnerRadiusKm(nextInnerRadiusKm);
+    setOuterRadiusKm(nextOuterRadiusKm);
+    setPois(restoredStar.points);
+    setResults([restoredStar]);
+    setSelectedResultIndex(0);
+    setSelectedPoi(null);
+    mapRef.current?.fitBounds(restoredBounds.pad(0.2), { maxZoom: 12 });
+    setStatus(
+      `已恢復我的最愛：${favorite.name}，中心 ${formatCoordinate(
+        restoredStar.center
+      )}。`
+    );
   };
 
   const isPoiFavorite = (poi: Poi) =>
@@ -572,20 +927,24 @@ function App() {
               <LocateFixed size={18} />
             </button>
           </div>
-          <label className="range-wrap">
-            <span>搜尋半徑</span>
-            <input
-              type="range"
-              min="1"
-              max="30"
-              step="1"
-              value={radiusKm}
-              onChange={(event) => setRadiusKm(Number(event.target.value))}
+          <div className="range-field">
+            <div className="range-label">
+              <span>搜尋範圍</span>
+              <strong>{radiusRangeLabel}</strong>
+            </div>
+            <RadiusRangeControl
+              innerRadiusKm={innerRadiusKm}
+              outerRadiusKm={outerRadiusKm}
+              onInnerChange={handleInnerRadiusChange}
+              onOuterChange={handleOuterRadiusChange}
             />
-            <strong>{radiusKm} km</strong>
-          </label>
+            <div className="range-hints">
+              <span>內徑 {innerRadiusKm} km</span>
+              <span>外徑 {outerRadiusKm} km</span>
+            </div>
+          </div>
           <p className="coordinate">
-            {center.lat.toFixed(6)}, {center.lng.toFixed(6)}
+            {formatCoordinate(center)}
           </p>
         </section>
 
@@ -836,20 +1195,42 @@ function App() {
             <p className="muted">收藏地點或星形後會顯示在這裡。</p>
           ) : (
             <div className="favorite-list">
-              {favorites.map((favorite) => (
-                <div className="favorite-row" key={favorite.id}>
-                  <span>{favorite.type === "poi" ? "地點" : "星形"}</span>
-                  <strong>{favorite.name}</strong>
-                  <button
-                    className="icon-button compact"
-                    type="button"
-                    title="移除收藏"
-                    onClick={() => removeFavorite(favorite.id)}
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              ))}
+              {favorites.map((favorite) => {
+                const coordinate =
+                  favorite.type === "star"
+                    ? `中心 ${formatCoordinate(favorite.star.center)}`
+                    : formatCoordinate({
+                        lat: favorite.poi.lat,
+                        lng: favorite.poi.lng
+                      });
+
+                return (
+                  <div className="favorite-row" key={favorite.id}>
+                    <button
+                      aria-label={`恢復收藏 ${favorite.name}`}
+                      className="favorite-restore"
+                      type="button"
+                      onClick={() => restoreFavorite(favorite)}
+                    >
+                      <span className="favorite-kind">
+                        {favorite.type === "poi" ? "地點" : "星形"}
+                      </span>
+                      <span className="favorite-summary">
+                        <strong>{favorite.name}</strong>
+                        <small>{coordinate}</small>
+                      </span>
+                    </button>
+                    <button
+                      className="icon-button compact"
+                      type="button"
+                      title="移除收藏"
+                      onClick={() => removeFavorite(favorite.id)}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
           <div className="download-grid">
@@ -868,8 +1249,11 @@ function App() {
       <section className="map-wrap" aria-label="互動地圖">
         <div ref={mapElementRef} className="map" />
         <div className="map-counter">
-          <strong>{pois.length}</strong> POI
-          {pois.length > MAX_RENDERED_POIS && (
+          <strong>{visiblePois.length}</strong> POI
+          {pois.length !== visiblePois.length && (
+            <span>{pois.length} 已下載</span>
+          )}
+          {visiblePois.length > MAX_RENDERED_POIS && (
             <span>顯示前 {MAX_RENDERED_POIS} 筆</span>
           )}
         </div>
