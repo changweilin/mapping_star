@@ -8,15 +8,26 @@ import {
 } from "react";
 import L from "leaflet";
 import {
+  ChevronDown,
+  ChevronUp,
   Crosshair,
   Download,
+  Layers,
   LocateFixed,
+  Map as MapIcon,
   MapPin,
+  Moon,
+  Mountain,
+  Pause,
   Play,
+  Rewind,
+  Satellite,
   Search,
   Sparkles,
   Star,
-  Trash2
+  Sun,
+  Trash2,
+  UserRound
 } from "lucide-react";
 import { POI_CATEGORIES } from "./data/categories";
 import { exportGpx, exportKml, splitFavorites } from "./lib/exporters";
@@ -31,14 +42,24 @@ import {
   formatDistance,
   normalizeDegrees
 } from "./lib/geo";
+import { loadLastStar, saveLastStar } from "./lib/lastStar";
+import {
+  getMagicElement,
+  getMagicAnimationOptions,
+  MAGIC_SPEED_OPTIONS,
+  makeMagicCircleStrokes,
+  type MagicCircleStroke,
+  type MagicSpeed
+} from "./lib/magicCircle";
 import { fetchPoisDetailed, overpassResultLimit } from "./lib/overpass";
 import { searchPlace } from "./lib/placeSearch";
 import {
   DEFAULT_APP_SETTINGS,
   loadSettings,
-  saveSettings
+  saveSettings,
+  type MapLayerId
 } from "./lib/settings";
-import { solveStarFromPois, starLineSequences } from "./lib/solver";
+import { solveStarFromPois } from "./lib/solver";
 import type { FavoriteItem, LatLng, Poi, StarMode, StarResult } from "./types";
 
 const DEFAULT_CENTER: LatLng = { lat: 25.033964, lng: 121.564468 };
@@ -46,9 +67,136 @@ const MAX_RENDERED_POIS = 350;
 const MAX_RADIUS_KM = 30;
 
 type RadiusHandle = "inner" | "outer";
+type MagicPlayback = "playing" | "paused";
+type MagicSymbolStroke = Extract<MagicCircleStroke, { kind: "symbol" }>;
+type CalculationProgress = {
+  label: string;
+  percent: number;
+};
+
+type MapTileLayerConfig = {
+  url: string;
+  options: L.TileLayerOptions;
+};
+
+const MAP_LAYER_OPTIONS = [
+  { id: "street", label: "街道", Icon: MapIcon },
+  { id: "terrain", label: "地形", Icon: Mountain },
+  { id: "satellite", label: "衛星", Icon: Satellite }
+] satisfies Array<{
+  id: MapLayerId;
+  label: string;
+  Icon: typeof MapIcon;
+}>;
+
+const MAP_TILE_LAYERS: Record<MapLayerId, MapTileLayerConfig> = {
+  street: {
+    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    options: {
+      maxZoom: 19,
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }
+  },
+  terrain: {
+    url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+    options: {
+      maxZoom: 19,
+      maxNativeZoom: 17,
+      attribution:
+        'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, SRTM | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>'
+    }
+  },
+  satellite: {
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    options: {
+      maxZoom: 19,
+      attribution:
+        'Tiles &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community'
+    }
+  }
+};
+
+const ABOUT_LINKS = [
+  {
+    label: "GitHub",
+    href: "https://github.com/changweilin",
+    favicon:
+      "https://www.google.com/s2/favicons?domain_url=https://github.com/changweilin&sz=32"
+  },
+  {
+    label: "LinkedIn",
+    href: "https://www.linkedin.com/in/wei-lin-chang-ba38049a/",
+    favicon:
+      "https://www.google.com/s2/favicons?domain_url=https://www.linkedin.com/in/wei-lin-chang-ba38049a/&sz=32"
+  },
+  {
+    label: "Demo Link",
+    href: "https://changweilin.github.io/demo_link/",
+    favicon:
+      "https://www.google.com/s2/favicons?domain_url=https://changweilin.github.io/demo_link/&sz=32"
+  }
+];
+
+const createBaseTileLayer = (layerId: MapLayerId) => {
+  const config = MAP_TILE_LAYERS[layerId];
+
+  return L.tileLayer(config.url, {
+    ...config.options,
+    className: `map-base-tile map-base-tile--${layerId}`
+  });
+};
 
 const formatCoordinate = ({ lat, lng }: LatLng) =>
   `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+
+const mergePois = (currentPois: Poi[], nextPois: Poi[]) => {
+  const byId = new Map(currentPois.map((poi) => [poi.id, poi]));
+  nextPois.forEach((poi) => byId.set(poi.id, poi));
+  return [...byId.values()];
+};
+
+const waitForPaint = () =>
+  typeof window === "undefined"
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => resolve());
+        });
+      });
+
+const makeStarBounds = (result: StarResult) => {
+  const bounds = L.latLngBounds(
+    [
+      [result.center.lat, result.center.lng],
+      ...result.points.map((point) => [point.lat, point.lng])
+    ] as L.LatLngExpression[]
+  );
+  const outerPointRadiusMeters = Math.max(
+    result.radiusMeanMeters,
+    ...result.points.map((point) => point.distanceMeters)
+  );
+
+  [0, 90, 180, 270].forEach((bearing) => {
+    const edge = destinationPoint(result.center, outerPointRadiusMeters, bearing);
+    bounds.extend([edge.lat, edge.lng]);
+  });
+
+  return bounds;
+};
+
+const makeRadiusBounds = (center: LatLng, radiusMeters: number) => {
+  const bounds = L.latLngBounds([
+    [center.lat, center.lng]
+  ] as L.LatLngExpression[]);
+
+  [0, 90, 180, 270].forEach((bearing) => {
+    const edge = destinationPoint(center, radiusMeters, bearing);
+    bounds.extend([edge.lat, edge.lng]);
+  });
+
+  return bounds;
+};
 
 const makeAutoSolveKey = ({
   mode,
@@ -86,6 +234,17 @@ const makeCenterIcon = () =>
     iconAnchor: [15, 15]
   });
 
+const makeMagicSymbolHtml = () =>
+  '<span class="magic-symbol__aura"></span><span class="magic-symbol__trail"></span><span class="magic-symbol__glyph"></span>';
+
+const makeMagicSymbolIcon = (stroke: MagicSymbolStroke) =>
+  L.divIcon({
+    className: stroke.className,
+    html: makeMagicSymbolHtml(),
+    iconSize: [stroke.sizePx, stroke.sizePx],
+    iconAnchor: [stroke.sizePx / 2, stroke.sizePx / 2]
+  });
+
 const downloadText = (filename: string, content: string, type: string) => {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -96,6 +255,70 @@ const downloadText = (filename: string, content: string, type: string) => {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+};
+
+const formatMagicSpeed = (speed: MagicSpeed) =>
+  speed === 0.254 ? "0.254x" : `${speed}x`;
+
+const parseMagicSpeed = (value: string): MagicSpeed => {
+  const numericValue = Number(value);
+  return (
+    MAGIC_SPEED_OPTIONS.find((option) => option === numericValue) ??
+    MAGIC_SPEED_OPTIONS[0]
+  );
+};
+
+const getLayerElement = (layer: L.Layer) => {
+  const pathLayer = layer as L.Layer & {
+    getElement?: () => HTMLElement | SVGElement | null;
+  };
+
+  return typeof pathLayer.getElement === "function"
+    ? pathLayer.getElement()
+    : null;
+};
+
+const applyMagicStrokeTiming = (
+  layer: L.Layer,
+  stroke: MagicCircleStroke,
+  speed: MagicSpeed,
+  playback: MagicPlayback
+) => {
+  const element = getLayerElement(layer);
+  if (!element) return;
+
+  element.classList.add("magic-drawable");
+  if (stroke.kind !== "symbol" && element instanceof SVGElement) {
+    element.setAttribute("pathLength", "1");
+  }
+  element.style.setProperty("--magic-delay", `${stroke.delayMs / speed}ms`);
+  element.style.setProperty(
+    "--magic-duration",
+    `${stroke.durationMs / speed}ms`
+  );
+  if (stroke.kind === "symbol") {
+    element.style.setProperty("--magic-symbol-size", `${stroke.sizePx}px`);
+    element.style.setProperty("--magic-symbol-rotate", `${stroke.bearingDeg}deg`);
+    element.style.setProperty("--magic-symbol-color", stroke.color);
+    element.style.setProperty("--magic-symbol-accent", stroke.accent);
+    element.style.setProperty("--magic-symbol-pale", stroke.pale);
+    element.style.setProperty("--magic-symbol-opacity", `${stroke.opacity}`);
+    element.style.setProperty("--magic-symbol-phase", `${stroke.phase}deg`);
+  }
+  element.style.animationPlayState =
+    playback === "playing" ? "running" : "paused";
+};
+
+const setMagicLayerPlayback = (
+  group: L.LayerGroup | null,
+  playback: MagicPlayback
+) => {
+  group?.eachLayer((layer) => {
+    const element = getLayerElement(layer);
+    if (!element?.classList.contains("magic-drawable")) return;
+    element.style.animationPlayState =
+      playback === "playing" ? "running" : "paused";
+  });
 };
 
 const makeSectorPolygon = (
@@ -292,6 +515,7 @@ const RadiusRangeControl = ({
 function App() {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
   const centerLayerRef = useRef<L.LayerGroup | null>(null);
   const poiLayerRef = useRef<L.LayerGroup | null>(null);
   const starLayerRef = useRef<L.LayerGroup | null>(null);
@@ -300,8 +524,13 @@ function App() {
   const [initialSettings] = useState(() =>
     typeof window === "undefined" ? DEFAULT_APP_SETTINGS : loadSettings()
   );
+  const [initialLastStar] = useState(() =>
+    typeof window === "undefined" ? null : loadLastStar()
+  );
 
-  const [center, setCenter] = useState<LatLng>(DEFAULT_CENTER);
+  const [center, setCenter] = useState<LatLng>(
+    initialLastStar?.center ?? DEFAULT_CENTER
+  );
   const [searchText, setSearchText] = useState("");
   const [innerRadiusKm, setInnerRadiusKm] = useState(
     initialSettings.innerRadiusKm
@@ -310,7 +539,7 @@ function App() {
     initialSettings.outerRadiusKm
   );
   const [starMode, setStarMode] = useState<StarMode>(
-    initialSettings.starMode
+    initialLastStar?.mode ?? initialSettings.starMode
   );
   const [angleToleranceDeg, setAngleToleranceDeg] = useState(
     initialSettings.angleToleranceDeg
@@ -324,17 +553,39 @@ function App() {
   const [showSectors, setShowSectors] = useState(
     initialSettings.showSectors
   );
+  const [theme, setTheme] = useState(initialSettings.theme);
+  const [mapLayer, setMapLayer] = useState<MapLayerId>(
+    initialSettings.mapLayer
+  );
   const [selectedCategoryIds, setSelectedCategoryIds] =
     useState<string[]>(initialSettings.selectedCategoryIds);
+  const [isCategoryPanelExpanded, setIsCategoryPanelExpanded] =
+    useState(false);
   const [pois, setPois] = useState<Poi[]>([]);
-  const [results, setResults] = useState<StarResult[]>([]);
+  const [results, setResults] = useState<StarResult[]>(
+    initialLastStar ? [initialLastStar] : []
+  );
   const [selectedResultIndex, setSelectedResultIndex] = useState(0);
   const [selectedPoi, setSelectedPoi] = useState<Poi | null>(null);
+  const [magicAnimationIndex, setMagicAnimationIndex] = useState(0);
+  const [magicPlayback, setMagicPlayback] =
+    useState<MagicPlayback>("playing");
+  const magicPlaybackRef = useRef<MagicPlayback>("playing");
+  const [magicSpeed, setMagicSpeed] = useState<MagicSpeed>(1);
+  const [magicReplayKey, setMagicReplayKey] = useState(0);
+  const [isMagicPlayerOpen, setIsMagicPlayerOpen] = useState(false);
   const [favorites, setFavorites] = useState<FavoriteItem[]>(() =>
     typeof window === "undefined" ? [] : loadFavorites()
   );
+  const progressClearTimerRef = useRef<number | null>(null);
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState("點擊地圖、搜尋地標或輸入座標來放置中心。");
+  const [calculationProgress, setCalculationProgress] =
+    useState<CalculationProgress | null>(null);
+  const [status, setStatus] = useState(
+    initialLastStar
+      ? `已載入上次暫存的${initialLastStar.mode === 5 ? "五芒星" : "六芒星"}魔法陣。`
+      : "點擊地圖、搜尋地標或輸入座標來放置中心。"
+  );
   const [error, setError] = useState("");
 
   const selectedCategories = useMemo(
@@ -344,8 +595,15 @@ function App() {
       ),
     [selectedCategoryIds]
   );
+  const categoryToggleLabel = isCategoryPanelExpanded
+    ? "收合目標類別"
+    : "展開目標類別";
 
   const selectedResult = results[selectedResultIndex] ?? null;
+  const magicAnimationOptions = useMemo(
+    () => getMagicAnimationOptions(selectedResult?.mode ?? starMode),
+    [selectedResult?.mode, starMode]
+  );
   const innerRadiusMeters = innerRadiusKm * 1000;
   const outerRadiusMeters = outerRadiusKm * 1000;
   const visiblePois = useMemo(
@@ -416,20 +674,65 @@ function App() {
         poi.distanceMeters >= innerRadiusMeters &&
         poi.distanceMeters <= outerRadiusMeters
     ).length;
+  const clearProgressTimer = () => {
+    if (progressClearTimerRef.current === null) return;
+    window.clearTimeout(progressClearTimerRef.current);
+    progressClearTimerRef.current = null;
+  };
+  const setProgressStep = (percent: number, label: string) => {
+    clearProgressTimer();
+    setCalculationProgress({
+      label,
+      percent: Math.max(0, Math.min(100, percent))
+    });
+  };
+  const completeProgress = (label: string) => {
+    clearProgressTimer();
+    setCalculationProgress({ label, percent: 100 });
+    progressClearTimerRef.current = window.setTimeout(() => {
+      setCalculationProgress(null);
+      progressClearTimerRef.current = null;
+    }, 900);
+  };
+  const resetProgress = () => {
+    clearProgressTimer();
+    setCalculationProgress(null);
+  };
+  const handleMagicPlaybackToggle = () => {
+    setMagicPlayback((current) =>
+      current === "playing" ? "paused" : "playing"
+    );
+  };
+  const handleMagicRewind = () => {
+    setMagicPlayback("paused");
+    setMagicReplayKey((key) => key + 1);
+  };
+  const handleMagicAnimationChange = (value: number) => {
+    setMagicAnimationIndex(value);
+    setMagicPlayback("playing");
+  };
+  const fitMapToResult = (result: StarResult) => {
+    mapRef.current?.fitBounds(makeStarBounds(result).pad(0.08), {
+      animate: true,
+      duration: 0.8,
+      maxZoom: 13,
+      padding: [34, 34]
+    });
+  };
 
   useEffect(() => {
     if (!mapElementRef.current || mapRef.current) return;
 
     const map = L.map(mapElementRef.current, {
       zoomControl: false
-    }).setView([DEFAULT_CENTER.lat, DEFAULT_CENTER.lng], 8);
+    });
+    map.fitBounds(makeRadiusBounds(center, outerRadiusMeters).pad(0.08), {
+      animate: false,
+      maxZoom: 13,
+      padding: [34, 34]
+    });
 
     L.control.zoom({ position: "bottomright" }).addTo(map);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-    }).addTo(map);
 
     centerLayerRef.current = L.layerGroup().addTo(map);
     sectorLayerRef.current = L.layerGroup().addTo(map);
@@ -450,12 +753,44 @@ function App() {
     return () => {
       map.remove();
       mapRef.current = null;
+      tileLayerRef.current = null;
     };
   }, []);
 
   useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    tileLayerRef.current?.remove();
+    tileLayerRef.current = createBaseTileLayer(mapLayer).addTo(map);
+    tileLayerRef.current.setZIndex(0);
+  }, [mapLayer]);
+
+  useEffect(() => () => clearProgressTimer(), []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+  }, [theme]);
+
+  useEffect(() => {
     saveFavorites(favorites);
   }, [favorites]);
+
+  useEffect(() => {
+    if (selectedResult) saveLastStar(selectedResult);
+  }, [selectedResult]);
+
+  useEffect(() => {
+    magicPlaybackRef.current = magicPlayback;
+    setMagicLayerPlayback(starLayerRef.current, magicPlayback);
+  }, [magicPlayback]);
+
+  useEffect(() => {
+    if (!selectedResult) return;
+    setMagicPlayback("playing");
+    setMagicReplayKey((key) => key + 1);
+  }, [selectedResult?.id]);
 
   useEffect(() => {
     saveSettings({
@@ -466,7 +801,9 @@ function App() {
       candidatesPerSlot,
       rotationStepDeg,
       showSectors,
-      selectedCategoryIds
+      selectedCategoryIds,
+      theme,
+      mapLayer
     });
   }, [
     candidatesPerSlot,
@@ -476,7 +813,9 @@ function App() {
     rotationStepDeg,
     selectedCategoryIds,
     showSectors,
-    starMode
+    starMode,
+    theme,
+    mapLayer
   ]);
 
   useEffect(() => {
@@ -574,47 +913,94 @@ function App() {
     group.clearLayers();
     if (!selectedResult) return;
 
-    starLineSequences(selectedResult.mode).forEach((sequence) => {
-      L.polyline(
-        sequence.map((pointIndex) => {
-          const point = selectedResult.points[pointIndex];
-          return [point.lat, point.lng] as L.LatLngExpression;
-        }),
-        {
-          color: "#263fd1",
-          weight: 3,
-          opacity: 0.9
-        }
-      ).addTo(group);
-    });
+    const magicElement = getMagicElement(magicAnimationIndex);
+
+    makeMagicCircleStrokes(selectedResult, magicAnimationIndex).forEach(
+      (stroke) => {
+        const layer =
+          stroke.kind === "circle"
+            ? L.circle([stroke.center.lat, stroke.center.lng], {
+                radius: stroke.radiusMeters,
+                color: stroke.color,
+                weight: stroke.weight,
+                opacity: stroke.opacity,
+                fill: false,
+                interactive: false,
+                className: stroke.className
+              })
+            : stroke.kind === "symbol"
+              ? L.marker([stroke.position.lat, stroke.position.lng], {
+                  icon: makeMagicSymbolIcon(stroke),
+                  interactive: false,
+                  keyboard: false,
+                  zIndexOffset:
+                    stroke.role === "center"
+                      ? 760
+                      : stroke.role === "endpoint"
+                        ? 820
+                        : 560
+                })
+              : L.polyline(
+                  stroke.points.map(
+                    (point) => [point.lat, point.lng] as L.LatLngExpression
+                  ),
+                  {
+                    color: stroke.color,
+                    weight: stroke.weight,
+                    opacity: stroke.opacity,
+                    interactive: false,
+                    className: stroke.className
+                  }
+                );
+
+        layer.addTo(group);
+        applyMagicStrokeTiming(
+          layer,
+          stroke,
+          magicSpeed,
+          magicPlaybackRef.current
+        );
+      }
+    );
 
     selectedResult.points.forEach((poi, index) => {
-      L.circleMarker([poi.lat, poi.lng], {
-        radius: 8,
-        color: "#263fd1",
-        weight: 2,
-        fillColor: "#ffffff",
-        fillOpacity: 1
+      const marker = L.circleMarker([poi.lat, poi.lng], {
+        radius: 14,
+        color: magicElement.accent,
+        weight: 1,
+        opacity: 0.38,
+        fillColor: magicElement.pale,
+        fillOpacity: 0.2,
+        className: `star-point star-point--appear magic-element--${magicElement.id}`
       })
         .bindTooltip(`${index + 1}. ${poi.name}`, {
-          direction: "top",
+          direction: "bottom",
+          offset: [0, 22],
           permanent: true,
-          className: "star-label"
+          className: "star-label star-label--below"
         })
         .on("click", () => setSelectedPoi(poi))
         .addTo(group);
+      const markerElement = marker.getElement() as SVGElement | null;
+      markerElement?.classList.add("magic-drawable");
+      markerElement?.style.setProperty(
+        "--magic-delay",
+        `${(1880 + index * 90) / magicSpeed}ms`
+      );
+      markerElement?.style.setProperty(
+        "--magic-duration",
+        `${520 / magicSpeed}ms`
+      );
+      if (markerElement) {
+        markerElement.style.animationPlayState =
+          magicPlaybackRef.current === "playing" ? "running" : "paused";
+      }
     });
-  }, [selectedResult]);
+  }, [magicAnimationIndex, magicReplayKey, magicSpeed, selectedResult]);
 
   useEffect(() => {
-    if (!selectedResult || !mapRef.current) return;
-    const bounds = L.latLngBounds(
-      [
-        [selectedResult.center.lat, selectedResult.center.lng],
-        ...selectedResult.points.map((point) => [point.lat, point.lng])
-      ] as L.LatLngExpression[]
-    );
-    mapRef.current.fitBounds(bounds.pad(0.2), { maxZoom: 12 });
+    if (!selectedResult) return;
+    fitMapToResult(selectedResult);
   }, [selectedResult?.id]);
 
   useEffect(() => {
@@ -656,6 +1042,32 @@ function App() {
     );
 
     return nextResults;
+  };
+
+  const handleRecalculate = async () => {
+    setLoading(true);
+    setError("");
+    setSelectedPoi(null);
+    try {
+      setProgressStep(12, "整理目前候選點");
+      await waitForPaint();
+      setProgressStep(64, "計算魔法陣組合");
+      await waitForPaint();
+      const nextResults = runSolver();
+      setProgressStep(
+        nextResults.length > 0 ? 92 : 88,
+        nextResults.length > 0 ? "繪製魔法陣" : "整理計算結果"
+      );
+      await waitForPaint();
+      completeProgress(
+        nextResults.length > 0 ? "魔法陣完成" : "計算完成，尚無可用星形"
+      );
+    } catch (solveError) {
+      resetProgress();
+      setError(solveError instanceof Error ? solveError.message : "計算失敗。");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSearchPlace = async () => {
@@ -708,14 +1120,26 @@ function App() {
     setError("");
     setSelectedPoi(null);
     try {
+      setProgressStep(8, "準備搜尋範圍");
+      await waitForPaint();
+      setProgressStep(34, "下載地點資料");
       const { pois: nextPois, warnings } = await fetchPoisDetailed(
         center,
         outerRadiusMeters,
         selectedCategories,
         innerRadiusMeters
       );
-      setPois(nextPois);
-      const nextResults = runSolver(nextPois);
+      const mergedPois = mergePois(pois, nextPois);
+      const addedPoiCount = mergedPois.length - pois.length;
+      setPois(mergedPois);
+      setProgressStep(68, `分析 ${mergedPois.length} 個候選點`);
+      await waitForPaint();
+      const nextResults = runSolver(mergedPois);
+      setProgressStep(
+        nextResults.length > 0 ? 92 : 88,
+        nextResults.length > 0 ? "繪製魔法陣" : "整理計算結果"
+      );
+      await waitForPaint();
       const notes = [...warnings];
 
       if (nextPois.length >= overpassResultLimit) {
@@ -726,7 +1150,7 @@ function App() {
 
       if (notes.length > 0) {
         setStatus(
-          `${notes.join(" ")} 已取得 ${nextPois.length} 筆資料${
+          `${notes.join(" ")} 本次取得 ${nextPois.length} 筆資料，新增 ${addedPoiCount} 筆，累計 ${mergedPois.length} 筆${
             nextResults.length > 0
               ? `，仍找到 ${nextResults.length} 組${
                   starMode === 5 ? "五芒星" : "六芒星"
@@ -735,7 +1159,11 @@ function App() {
           }`
         );
       }
+      completeProgress(
+        nextResults.length > 0 ? "魔法陣完成" : "計算完成，尚無可用星形"
+      );
     } catch (fetchError) {
+      resetProgress();
       setError(fetchError instanceof Error ? fetchError.message : "查詢失敗。");
     } finally {
       setLoading(false);
@@ -790,12 +1218,6 @@ function App() {
         )
       )
     );
-    const restoredBounds = L.latLngBounds(
-      [
-        [restoredStar.center.lat, restoredStar.center.lng],
-        ...restoredStar.points.map((point) => [point.lat, point.lng])
-      ] as L.LatLngExpression[]
-    );
     const nextInnerRadiusKm = Math.min(
       innerRadiusKm,
       maxPointDistanceKm - 1
@@ -819,15 +1241,14 @@ function App() {
     setStarMode(restoredStar.mode);
     setInnerRadiusKm(nextInnerRadiusKm);
     setOuterRadiusKm(nextOuterRadiusKm);
-    setPois(restoredStar.points);
     setResults([restoredStar]);
     setSelectedResultIndex(0);
     setSelectedPoi(null);
-    mapRef.current?.fitBounds(restoredBounds.pad(0.2), { maxZoom: 12 });
+    fitMapToResult(restoredStar);
     setStatus(
       `已恢復我的最愛：${favorite.name}，中心 ${formatCoordinate(
         restoredStar.center
-      )}。`
+      )}，並保留目前已搜尋的 POI。`
     );
   };
 
@@ -884,12 +1305,147 @@ function App() {
     <main className="app-shell">
       <aside className="sidebar" aria-label="地圖控制">
         <header className="app-header">
-          <div>
+          <div className="brand-lockup">
+            <img
+              aria-hidden="true"
+              className="brand-mark"
+              src="/logo.png"
+              alt=""
+            />
             <p className="eyebrow">OpenStreetMap 星形尋點</p>
             <h1>Mapping Star</h1>
           </div>
-          <Sparkles aria-hidden="true" />
+          <div className="header-actions">
+            <div className="magic-player">
+              <button
+                aria-controls="magic-player-menu"
+                aria-expanded={isMagicPlayerOpen}
+                aria-label="魔法陣播放器"
+                className="magic-player-toggle"
+                title="魔法陣播放器"
+                type="button"
+                onClick={() => setIsMagicPlayerOpen((open) => !open)}
+              >
+                {magicPlayback === "playing" && selectedResult ? (
+                  <Pause size={18} />
+                ) : (
+                  <Play size={18} />
+                )}
+                <ChevronDown
+                  aria-hidden="true"
+                  className={isMagicPlayerOpen ? "open" : ""}
+                  size={14}
+                />
+              </button>
+              {isMagicPlayerOpen && (
+                <div
+                  className="magic-player-menu"
+                  id="magic-player-menu"
+                  role="group"
+                  aria-label="魔法陣動畫控制"
+                >
+                  <div className="magic-player-actions">
+                    <button
+                      className="magic-control-button"
+                      type="button"
+                      title="倒帶"
+                      aria-label="倒帶魔法陣動畫"
+                      onClick={handleMagicRewind}
+                      disabled={!selectedResult}
+                    >
+                      <Rewind size={17} />
+                    </button>
+                    <button
+                      className="magic-control-button"
+                      type="button"
+                      title={magicPlayback === "playing" ? "暫停" : "播放"}
+                      aria-label={
+                        magicPlayback === "playing"
+                          ? "暫停魔法陣動畫"
+                          : "播放魔法陣動畫"
+                      }
+                      onClick={handleMagicPlaybackToggle}
+                      disabled={!selectedResult}
+                    >
+                      {magicPlayback === "playing" ? (
+                        <Pause size={17} />
+                      ) : (
+                        <Play size={17} />
+                      )}
+                    </button>
+                  </div>
+                  <label className="select-wrap">
+                    <span>動畫</span>
+                    <select
+                      value={magicAnimationIndex}
+                      onChange={(event) =>
+                        handleMagicAnimationChange(Number(event.target.value))
+                      }
+                    >
+                      {magicAnimationOptions.map((option) => (
+                        <option value={option.index} key={option.index}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="select-wrap">
+                    <span>速度</span>
+                    <select
+                      value={magicSpeed}
+                      onChange={(event) =>
+                        setMagicSpeed(parseMagicSpeed(event.target.value))
+                      }
+                    >
+                      {MAGIC_SPEED_OPTIONS.map((speed) => (
+                        <option value={speed} key={speed}>
+                          {formatMagicSpeed(speed)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              )}
+            </div>
+            <button
+              aria-label={
+                theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+              }
+              className="theme-toggle"
+              title={
+                theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+              }
+              type="button"
+              onClick={() =>
+                setTheme((current) => (current === "dark" ? "light" : "dark"))
+              }
+            >
+              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+          </div>
         </header>
+
+        <section className="panel map-layer-panel">
+          <div className="panel-title">
+            <Layers aria-hidden="true" />
+            <h2>地圖圖層</h2>
+          </div>
+          <div className="map-layer-row" role="group" aria-label="地圖圖層">
+            {MAP_LAYER_OPTIONS.map(({ id, label, Icon }) => (
+              <button
+                aria-pressed={mapLayer === id}
+                className={mapLayer === id ? "selected" : ""}
+                key={id}
+                type="button"
+                title={`切換到${label}圖層`}
+                onClick={() => setMapLayer(id)}
+              >
+                <Icon size={16} />
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+        </section>
 
         <section className="panel">
           <div className="panel-title">
@@ -949,11 +1505,35 @@ function App() {
         </section>
 
         <section className="panel">
-          <div className="panel-title">
-            <MapPin aria-hidden="true" />
-            <h2>目標類別</h2>
+          <div className="panel-title panel-title--with-action">
+            <div className="panel-title-main">
+              <MapPin aria-hidden="true" />
+              <h2>目標類別</h2>
+            </div>
+            <button
+              className="category-collapse-button"
+              type="button"
+              aria-controls="target-category-grid"
+              aria-expanded={isCategoryPanelExpanded}
+              aria-label={categoryToggleLabel}
+              title={categoryToggleLabel}
+              onClick={() =>
+                setIsCategoryPanelExpanded((expanded) => !expanded)
+              }
+            >
+              {isCategoryPanelExpanded ? (
+                <ChevronUp size={18} />
+              ) : (
+                <ChevronDown size={18} />
+              )}
+            </button>
           </div>
-          <div className="category-grid">
+          <div
+            className={`category-grid ${
+              isCategoryPanelExpanded ? "category-grid--expanded" : ""
+            }`}
+            id="target-category-grid"
+          >
             {POI_CATEGORIES.map((category) => (
               <label className="category-option" key={category.id}>
                 <input
@@ -1060,7 +1640,7 @@ function App() {
             <button
               className="secondary-button"
               type="button"
-              onClick={() => runSolver()}
+              onClick={() => void handleRecalculate()}
               disabled={loading || pois.length === 0}
             >
               <Sparkles size={17} />
@@ -1068,7 +1648,30 @@ function App() {
             </button>
           </div>
           <div className="status-box" aria-live="polite">
-            {loading ? "處理中..." : status}
+            {calculationProgress ? (
+              <div className="progress-block">
+                <div className="progress-meta">
+                  <span>{calculationProgress.label}</span>
+                  <strong>{Math.round(calculationProgress.percent)}%</strong>
+                </div>
+                <div
+                  aria-label="計算進度"
+                  aria-valuemax={100}
+                  aria-valuemin={0}
+                  aria-valuenow={Math.round(calculationProgress.percent)}
+                  className="progress-bar"
+                  role="progressbar"
+                >
+                  <span
+                    style={{ width: `${calculationProgress.percent}%` }}
+                  />
+                </div>
+              </div>
+            ) : loading ? (
+              "處理中..."
+            ) : (
+              status
+            )}
           </div>
           {error && <div className="error-box">{error}</div>}
         </section>
@@ -1242,6 +1845,34 @@ function App() {
               <Download size={16} />
               收藏 KML
             </button>
+          </div>
+        </section>
+
+        <section className="panel about-panel">
+          <div className="panel-title">
+            <UserRound aria-hidden="true" />
+            <h2>About Me</h2>
+          </div>
+          <div className="about-copy">
+            <strong>Chang Wei Lin</strong>
+            <p>我愛星空至深，無懼黑夜。</p>
+            <blockquote>
+              <p>We have loved the stars too fondly to fear the dark.</p>
+              <cite>— &lt;The Old Astronomer&gt; Sarah Williams</cite>
+            </blockquote>
+          </div>
+          <div className="about-links" aria-label="About Me links">
+            {ABOUT_LINKS.map((link) => (
+              <a
+                href={link.href}
+                key={link.href}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <img src={link.favicon} alt="" aria-hidden="true" />
+                <span>{link.label}</span>
+              </a>
+            ))}
           </div>
         </section>
       </aside>

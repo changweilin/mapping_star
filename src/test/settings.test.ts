@@ -39,7 +39,9 @@ describe("settings helpers", () => {
       candidatesPerSlot: 99,
       rotationStepDeg: 0,
       showSectors: false,
-      selectedCategoryIds: ["religion", "missing", "station", "station"]
+      selectedCategoryIds: ["religion", "missing", "station", "station"],
+      theme: "dark",
+      mapLayer: "satellite"
     });
 
     expect(settings.innerRadiusKm).toBe(29);
@@ -50,6 +52,8 @@ describe("settings helpers", () => {
     expect(settings.rotationStepDeg).toBe(1);
     expect(settings.showSectors).toBe(false);
     expect(settings.selectedCategoryIds).toEqual(["religion", "station"]);
+    expect(settings.theme).toBe("dark");
+    expect(settings.mapLayer).toBe("satellite");
   });
 
   it("migrates the legacy single radius setting to an outer radius", () => {
@@ -69,6 +73,22 @@ describe("settings helpers", () => {
     expect(settings.selectedCategoryIds).toEqual(["religion"]);
   });
 
+  it("falls back to light mode when the persisted theme is invalid", () => {
+    const settings = normalizeSettings({
+      theme: "auto"
+    });
+
+    expect(settings.theme).toBe("light");
+  });
+
+  it("falls back to the street map layer when the persisted layer is invalid", () => {
+    const settings = normalizeSettings({
+      mapLayer: "cadastre"
+    });
+
+    expect(settings.mapLayer).toBe("street");
+  });
+
   it("saves and loads settings from localStorage", () => {
     const localStorage = makeLocalStorage();
     vi.stubGlobal("window", { localStorage });
@@ -78,7 +98,9 @@ describe("settings helpers", () => {
       innerRadiusKm: 4,
       outerRadiusKm: 12,
       showSectors: false,
-      selectedCategoryIds: ["religion", "station"]
+      selectedCategoryIds: ["religion", "station"],
+      theme: "dark",
+      mapLayer: "terrain"
     });
 
     const loaded = loadSettings();
@@ -86,5 +108,7 @@ describe("settings helpers", () => {
     expect(loaded.outerRadiusKm).toBe(12);
     expect(loaded.showSectors).toBe(false);
     expect(loaded.selectedCategoryIds).toEqual(["religion", "station"]);
+    expect(loaded.theme).toBe("dark");
+    expect(loaded.mapLayer).toBe("terrain");
   });
 });

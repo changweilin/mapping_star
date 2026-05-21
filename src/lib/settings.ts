@@ -3,6 +3,9 @@ import type { StarMode } from "../types";
 
 export const SETTINGS_STORAGE_KEY = "mapping-star:settings";
 
+export type ThemeMode = "light" | "dark";
+export type MapLayerId = "street" | "terrain" | "satellite";
+
 export interface AppSettings {
   innerRadiusKm: number;
   outerRadiusKm: number;
@@ -12,6 +15,8 @@ export interface AppSettings {
   rotationStepDeg: number;
   showSectors: boolean;
   selectedCategoryIds: string[];
+  theme: ThemeMode;
+  mapLayer: MapLayerId;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -22,7 +27,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   candidatesPerSlot: 8,
   rotationStepDeg: 3,
   showSectors: true,
-  selectedCategoryIds: DEFAULT_CATEGORY_IDS
+  selectedCategoryIds: DEFAULT_CATEGORY_IDS,
+  theme: "light",
+  mapLayer: "street"
 };
 
 const clampNumber = (value: unknown, min: number, max: number, fallback: number) => {
@@ -33,6 +40,14 @@ const clampNumber = (value: unknown, min: number, max: number, fallback: number)
 
 const parseStarMode = (value: unknown): StarMode =>
   value === 6 ? 6 : DEFAULT_APP_SETTINGS.starMode;
+
+const parseTheme = (value: unknown): ThemeMode =>
+  value === "dark" || value === "light" ? value : DEFAULT_APP_SETTINGS.theme;
+
+const parseMapLayer = (value: unknown): MapLayerId =>
+  value === "street" || value === "terrain" || value === "satellite"
+    ? value
+    : DEFAULT_APP_SETTINGS.mapLayer;
 
 const parseCategoryIds = (value: unknown) => {
   const availableIds = new Set(POI_CATEGORIES.map((category) => category.id));
@@ -91,7 +106,9 @@ export const normalizeSettings = (value: unknown): AppSettings => {
       typeof source.showSectors === "boolean"
         ? source.showSectors
         : DEFAULT_APP_SETTINGS.showSectors,
-    selectedCategoryIds: parseCategoryIds(source.selectedCategoryIds)
+    selectedCategoryIds: parseCategoryIds(source.selectedCategoryIds),
+    theme: parseTheme(source.theme),
+    mapLayer: parseMapLayer(source.mapLayer)
   };
 };
 
