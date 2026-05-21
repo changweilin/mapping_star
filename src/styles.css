@@ -1234,8 +1234,18 @@ a {
     drop-shadow(0 0 8px rgba(83, 100, 242, 0.5));
 }
 
+.magic-symbol-anchor {
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  overflow: visible !important;
+  pointer-events: none;
+}
+
 .magic-symbol {
-  position: relative;
+  position: absolute;
+  left: 0;
+  top: 0;
   display: grid;
   place-items: center;
   width: var(--magic-symbol-size, 24px) !important;
@@ -1243,6 +1253,8 @@ a {
   color: var(--magic-symbol-color);
   opacity: 0;
   pointer-events: none;
+  transform: translate(-50%, -50%);
+  transform-origin: center;
   filter:
     drop-shadow(0 0 6px color-mix(in srgb, var(--magic-symbol-color), transparent 16%))
     drop-shadow(0 0 14px color-mix(in srgb, var(--magic-symbol-accent), transparent 26%));

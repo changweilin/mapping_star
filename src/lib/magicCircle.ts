@@ -1,5 +1,5 @@
 import type { LatLng, StarMode, StarResult } from "../types";
-import { destinationPoint, normalizeDegrees } from "./geo";
+import { bearingDegrees, destinationPoint, normalizeDegrees } from "./geo";
 import { starLineSequences } from "./solver";
 
 const FULL_CIRCLE_DEGREES = 360;
@@ -592,6 +592,11 @@ const pointFromPoi = (point: StarResult["points"][number]): LatLng => ({
   lng: point.lng
 });
 
+const pointBearingFromCenter = (
+  center: LatLng,
+  point: StarResult["points"][number]
+) => bearingDegrees(center, pointFromPoi(point));
+
 const makeRuneStroke = ({
   center,
   radiusMeters,
@@ -706,10 +711,15 @@ export const makeMagicCircleStrokes = (
   const element = getMagicElement(normalizedIndex);
   const mode = result.mode;
   const modeSlotDeg = FULL_CIRCLE_DEGREES / mode;
-  const phaseDeg = normalizeDegrees(
-    result.rotationDeg +
-      (FULL_CIRCLE_DEGREES * normalizedIndex) / MAGIC_ANIMATION_COUNT
-  );
+  const phaseDeg = normalizeDegrees(result.rotationDeg);
+  const visualPhaseDeg =
+    (FULL_CIRCLE_DEGREES * normalizedIndex) / MAGIC_ANIMATION_COUNT;
+  const starRayBearings = result.points.map((point, index) => {
+    const bearing = pointBearingFromCenter(result.center, point);
+    return Number.isFinite(bearing)
+      ? bearing
+      : normalizeDegrees(phaseDeg + index * modeSlotDeg);
+  });
   const radiusMeters = Math.max(
     result.radiusMeanMeters,
     MIN_MAGIC_RADIUS_METERS
@@ -815,7 +825,7 @@ export const makeMagicCircleStrokes = (
       symbol,
       sizePx,
       bearingDeg,
-      phase: normalizeDegrees(phaseDeg + bearingDeg),
+      phase: normalizeDegrees(visualPhaseDeg + bearingDeg),
       className: makeElementClass(
         element,
         `magic-symbol magic-symbol--${role} magic-symbol--${symbol} magic-ambient--${element.ambientEffect} magic-symbol--appear`
@@ -892,7 +902,7 @@ export const makeMagicCircleStrokes = (
         pushCircle("base-tree-ring-a", 0.33, element.pale, 0.9, 0.42, 520, "magic-circle magic-foundation magic-circle--draw", 0.32);
         pushCircle("base-tree-ring-b", 0.57, element.accent, 0.95, 0.38, 560, "magic-circle magic-foundation magic-circle--draw", 0.34);
         for (let index = 0; index < mode; index += 1) {
-          const bearing = phaseDeg + index * modeSlotDeg;
+          const bearing = starRayBearings[index] ?? phaseDeg + index * modeSlotDeg;
           pushPolyline(
             `base-root-curve-${index}`,
             [
@@ -1046,7 +1056,7 @@ export const makeMagicCircleStrokes = (
       case "vein":
         addRadialTicks("base-vein-spoke", mode * 2, 0.24, 0.95, element.primary, 1.1, 0.54, 5);
         for (let index = 0; index < mode; index += 1) {
-          const bearing = phaseDeg + index * modeSlotDeg;
+          const bearing = starRayBearings[index] ?? phaseDeg + index * modeSlotDeg;
           pushPolyline(
             `base-vein-branch-${index}`,
             [
@@ -1257,7 +1267,7 @@ export const makeMagicCircleStrokes = (
   );
 
   result.points.forEach((point, index) => {
-    const bearing = phaseDeg + index * modeSlotDeg;
+    const bearing = starRayBearings[index] ?? phaseDeg + index * modeSlotDeg;
     pushPolyline(
       `spoke-${index}`,
       [
@@ -1309,7 +1319,7 @@ export const makeMagicCircleStrokes = (
     case "wood":
       addRadialTicks("wood-root", mode * 2, 0.18, 0.74, element.primary, 1.2, 0.55, 8);
       for (let index = 0; index < mode; index += 1) {
-        const bearing = phaseDeg + index * modeSlotDeg;
+        const bearing = starRayBearings[index] ?? phaseDeg + index * modeSlotDeg;
         pushPolyline(
           `wood-branch-${index}`,
           [
@@ -1636,7 +1646,7 @@ export const makeMagicCircleStrokes = (
   );
 
   result.points.forEach((point, index) => {
-    const bearing = phaseDeg + index * modeSlotDeg;
+    const bearing = starRayBearings[index] ?? phaseDeg + index * modeSlotDeg;
     pushSymbol(
       `endpoint-symbol-${index}`,
       pointFromPoi(point),
@@ -1653,9 +1663,10 @@ export const makeMagicCircleStrokes = (
 
   const ambientCount = element.ambientEffect === "ghosts" ? 9 : 8;
   for (let index = 0; index < ambientCount; index += 1) {
+    const rayIndex = index % Math.max(1, starRayBearings.length);
     const bearing =
-      phaseDeg + (FULL_CIRCLE_DEGREES * index) / ambientCount + (index % 2) * 9;
-    const radiusScale = 0.28 + (index % 4) * 0.18;
+      starRayBearings[rayIndex] ?? phaseDeg + rayIndex * modeSlotDeg;
+    const radiusScale = 0.28 + (Math.floor(index / mode) % 4) * 0.18;
     pushSymbol(
       `ambient-symbol-${index}`,
       destinationPoint(result.center, radiusMeters * radiusScale, bearing),

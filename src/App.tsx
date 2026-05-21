@@ -234,15 +234,15 @@ const makeCenterIcon = () =>
     iconAnchor: [15, 15]
   });
 
-const makeMagicSymbolHtml = () =>
-  '<span class="magic-symbol__aura"></span><span class="magic-symbol__trail"></span><span class="magic-symbol__glyph"></span>';
+const makeMagicSymbolHtml = (stroke: MagicSymbolStroke) =>
+  `<span class="${stroke.className}"><span class="magic-symbol__aura"></span><span class="magic-symbol__trail"></span><span class="magic-symbol__glyph"></span></span>`;
 
 const makeMagicSymbolIcon = (stroke: MagicSymbolStroke) =>
   L.divIcon({
-    className: stroke.className,
-    html: makeMagicSymbolHtml(),
-    iconSize: [stroke.sizePx, stroke.sizePx],
-    iconAnchor: [stroke.sizePx / 2, stroke.sizePx / 2]
+    className: "magic-symbol-anchor",
+    html: makeMagicSymbolHtml(stroke),
+    iconSize: [0, 0],
+    iconAnchor: [0, 0]
   });
 
 const downloadText = (filename: string, content: string, type: string) => {
@@ -278,6 +278,20 @@ const getLayerElement = (layer: L.Layer) => {
     : null;
 };
 
+const setElementAnimationPlayback = (
+  element: HTMLElement | SVGElement,
+  playback: MagicPlayback
+) => {
+  const animationPlayState =
+    playback === "playing" ? "running" : "paused";
+  element.style.animationPlayState = animationPlayState;
+  element
+    .querySelectorAll<HTMLElement | SVGElement>("*")
+    .forEach((child) => {
+      child.style.animationPlayState = animationPlayState;
+    });
+};
+
 const applyMagicStrokeTiming = (
   layer: L.Layer,
   stroke: MagicCircleStroke,
@@ -305,8 +319,7 @@ const applyMagicStrokeTiming = (
     element.style.setProperty("--magic-symbol-opacity", `${stroke.opacity}`);
     element.style.setProperty("--magic-symbol-phase", `${stroke.phase}deg`);
   }
-  element.style.animationPlayState =
-    playback === "playing" ? "running" : "paused";
+  setElementAnimationPlayback(element, playback);
 };
 
 const setMagicLayerPlayback = (
@@ -316,8 +329,7 @@ const setMagicLayerPlayback = (
   group?.eachLayer((layer) => {
     const element = getLayerElement(layer);
     if (!element?.classList.contains("magic-drawable")) return;
-    element.style.animationPlayState =
-      playback === "playing" ? "running" : "paused";
+    setElementAnimationPlayback(element, playback);
   });
 };
 

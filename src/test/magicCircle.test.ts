@@ -6,7 +6,15 @@ import {
   MAGIC_SPEED_OPTIONS,
   makeMagicCircleStrokes
 } from "../lib/magicCircle";
+import {
+  angularDifferenceDegrees,
+  bearingDegrees,
+  destinationPoint,
+  haversineDistanceMeters
+} from "../lib/geo";
 import type { Poi, StarMode, StarResult } from "../types";
+
+const TEST_CENTER = { lat: 25, lng: 121 };
 
 const makePoi = (index: number, mode: StarMode): Poi => ({
   id: `poi-${mode}-${index}`,
@@ -26,7 +34,7 @@ const makePoi = (index: number, mode: StarMode): Poi => ({
 const makeResult = (mode: StarMode): StarResult => ({
   id: `star-${mode}`,
   mode,
-  center: { lat: 25, lng: 121 },
+  center: TEST_CENTER,
   points: Array.from({ length: mode }, (_, index) => makePoi(index, mode)),
   score: 0.1,
   rotationDeg: 12,
@@ -35,6 +43,38 @@ const makeResult = (mode: StarMode): StarResult => ({
   angleErrorDeg: 1.5,
   createdAt: "2026-05-21T00:00:00.000Z"
 });
+
+const makePoiAtBearing = (
+  index: number,
+  mode: StarMode,
+  bearingDeg: number
+): Poi => {
+  const distanceMeters = 1450 + index * 85;
+  const position = destinationPoint(TEST_CENTER, distanceMeters, bearingDeg);
+
+  return {
+    ...makePoi(index, mode),
+    lat: position.lat,
+    lng: position.lng,
+    distanceMeters,
+    bearingDeg
+  };
+};
+
+const makeResultWithBearings = (
+  mode: StarMode,
+  bearings: number[]
+): StarResult => ({
+  ...makeResult(mode),
+  points: bearings.map((bearing, index) =>
+    makePoiAtBearing(index, mode, bearing)
+  ),
+  radiusMeanMeters:
+    bearings.reduce((total, _bearing, index) => total + 1450 + index * 85, 0) /
+    bearings.length
+});
+
+const pointPosition = (point: Poi) => ({ lat: point.lat, lng: point.lng });
 
 describe("magic circle animations", () => {
   it("offers 16 element-named choices for five- and six-point stars", () => {
@@ -110,6 +150,75 @@ describe("magic circle animations", () => {
         )
       ).toBe(true);
     }
+  });
+
+  it("anchors magic symbols to the center and actual star rays", () => {
+    const result = makeResultWithBearings(5, [17, 91, 154, 223, 299]);
+    const rayBearings = result.points.map((point) =>
+      bearingDegrees(result.center, pointPosition(point))
+    );
+    const strokes = makeMagicCircleStrokes(result, 11);
+    const centerSymbol = strokes.find((stroke) => stroke.id === "center-symbol");
+
+    if (!centerSymbol || centerSymbol.kind !== "symbol") {
+      throw new Error("Expected a center magic symbol");
+    }
+
+    expect(
+      haversineDistanceMeters(centerSymbol.position, result.center)
+    ).toBeLessThan(0.001);
+
+    const endpointSymbols = strokes.filter(
+      (stroke) => stroke.kind === "symbol" && stroke.role === "endpoint"
+    );
+    expect(endpointSymbols).toHaveLength(result.mode);
+    endpointSymbols.forEach((stroke, index) => {
+      if (stroke.kind !== "symbol") throw new Error("Expected endpoint symbol");
+      expect(
+        haversineDistanceMeters(stroke.position, pointPosition(result.points[index]))
+      ).toBeLessThan(0.001);
+      expect(
+        angularDifferenceDegrees(stroke.bearingDeg, rayBearings[index])
+      ).toBeLessThan(0.000001);
+    });
+
+    const ambientSymbols = strokes.filter(
+      (stroke) => stroke.kind === "symbol" && stroke.role === "ambient"
+    );
+    expect(ambientSymbols.length).toBeGreaterThan(0);
+    ambientSymbols.forEach((stroke) => {
+      if (stroke.kind !== "symbol") throw new Error("Expected ambient symbol");
+      const symbolBearing = bearingDegrees(result.center, stroke.position);
+      expect(
+        rayBearings.some(
+          (rayBearing) =>
+            angularDifferenceDegrees(symbolBearing, rayBearing) < 0.000001
+        )
+      ).toBe(true);
+    });
+  });
+
+  it("draws spoke strokes on the actual center-to-point rays", () => {
+    const result = makeResultWithBearings(6, [4, 63, 127, 181, 244, 309]);
+    const strokes = makeMagicCircleStrokes(result, 7);
+
+    result.points.forEach((point, index) => {
+      const spoke = strokes.find((stroke) => stroke.id === `spoke-${index}`);
+      const rayBearing = bearingDegrees(result.center, pointPosition(point));
+
+      if (!spoke || spoke.kind !== "polyline") {
+        throw new Error(`Expected spoke-${index}`);
+      }
+
+      spoke.points.forEach((position) => {
+        expect(
+          angularDifferenceDegrees(
+            bearingDegrees(result.center, position),
+            rayBearing
+          )
+        ).toBeLessThan(0.000001);
+      });
+    });
   });
 
   it("marks every generated layer with element material and geometry classes", () => {
