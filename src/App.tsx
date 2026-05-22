@@ -1578,6 +1578,9 @@ function App() {
   const [starResultSortDirection, setStarResultSortDirection] =
     useState<StarResultSortDirection>("asc");
   const [expandedResultId, setExpandedResultId] = useState<string | null>(null);
+  const [expandedFavoriteId, setExpandedFavoriteId] = useState<string | null>(
+    null
+  );
   const [selectedPoi, setSelectedPoi] = useState<Poi | null>(null);
   const [magicAnimationIndex, setMagicAnimationIndex] = useState(0);
   const [magicPlayback, setMagicPlayback] =
@@ -1820,6 +1823,12 @@ function App() {
     setSelectedResultIndex(index);
     setExpandedResultId((current) =>
       current === result.id ? null : result.id
+    );
+  };
+  const handleFavoriteToggle = (favorite: FavoriteItem) => {
+    if (areFavoritesLocked) return;
+    setExpandedFavoriteId((current) =>
+      current === favorite.id ? null : favorite.id
     );
   };
   const skipNextAutoSolveForCenter = (nextCenter: LatLng) => {
@@ -3257,6 +3266,7 @@ function App() {
     setResults([]);
     setSelectedResultIndex(0);
     setExpandedResultId(null);
+    setExpandedFavoriteId(null);
     setSelectedPoi(null);
     setHoneycombCompletedTargetCount(
       searchStrategy === "honeycomb" ? 0 : null
@@ -3456,6 +3466,9 @@ function App() {
     }
 
     setFavorites((current) => current.filter((item) => item.id !== favoriteId));
+    setExpandedFavoriteId((current) =>
+      current === favoriteId ? null : current
+    );
   };
 
   const restoreFavorite = (favorite: FavoriteItem) => {
@@ -3471,6 +3484,7 @@ function App() {
         lat: favorite.poi.lat,
         lng: favorite.poi.lng
       };
+      setExpandedFavoriteId(favorite.id);
       setCenter(nextCenter);
       setCenterName(favorite.name);
       setSelectedPoi(favorite.poi);
@@ -3520,6 +3534,7 @@ function App() {
     setOuterRadiusKm(nextOuterRadiusKm);
     setResults([restoredStar]);
     setSelectedResultIndex(0);
+    setExpandedFavoriteId(favorite.id);
     setSelectedPoi(null);
     fitMapToResult(restoredStar);
     setStatus(
@@ -4121,6 +4136,7 @@ function App() {
                   role="group"
                   aria-label="星形結果排序"
                 >
+                  <span className="result-sort-label">排序</span>
                   {STAR_RESULT_SORT_OPTIONS.map((option) => (
                     <button
                       aria-pressed={starResultSort === option.id}
@@ -4285,34 +4301,148 @@ function App() {
                         lat: favorite.poi.lat,
                         lng: favorite.poi.lng
                       });
+                const isExpanded = expandedFavoriteId === favorite.id;
 
                 return (
-                  <div className="favorite-row" key={favorite.id}>
-                    <button
-                      aria-label={`恢復收藏 ${favorite.name}`}
-                      className="favorite-restore"
-                      type="button"
-                      onClick={() => restoreFavorite(favorite)}
-                      disabled={areFavoritesLocked}
-                    >
-                      <span className="favorite-kind">
-                        {favorite.type === "poi" ? "地點" : "星形"}
-                      </span>
-                      <span className="favorite-summary">
-                        <strong>{favorite.name}</strong>
-                        <small>{coordinate}</small>
-                      </span>
-                    </button>
-                    <button
-                      className="icon-button compact"
-                      type="button"
-                      title="移除收藏"
-                      onClick={() => removeFavorite(favorite.id)}
-                      disabled={areFavoritesLocked}
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
+                  <article
+                    className={`favorite-item ${
+                      isExpanded ? "expanded" : ""
+                    }`}
+                    key={favorite.id}
+                  >
+                    <div className="favorite-row">
+                      <button
+                        aria-expanded={isExpanded}
+                        aria-label={`展開收藏 ${favorite.name}`}
+                        className="favorite-toggle"
+                        type="button"
+                        onClick={() => handleFavoriteToggle(favorite)}
+                        disabled={areFavoritesLocked}
+                      >
+                        <span className="favorite-kind">
+                          {favorite.type === "poi" ? "地點" : "星形"}
+                        </span>
+                        <span className="favorite-summary">
+                          <strong>{favorite.name}</strong>
+                          <small>{coordinate}</small>
+                        </span>
+                        {isExpanded ? (
+                          <ChevronUp aria-hidden="true" size={16} />
+                        ) : (
+                          <ChevronDown aria-hidden="true" size={16} />
+                        )}
+                      </button>
+                      <button
+                        className="icon-button compact"
+                        type="button"
+                        title="移除收藏"
+                        onClick={() => removeFavorite(favorite.id)}
+                        disabled={areFavoritesLocked}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                    {isExpanded && (
+                      <div className="favorite-expanded">
+                        {favorite.type === "star" ? (
+                          <>
+                            <div className="subsection-title">
+                              <Sparkles aria-hidden="true" />
+                              <strong>星芒座標</strong>
+                            </div>
+                            <ol className="point-list">
+                              {favorite.star.points.map((point, pointIndex) => (
+                                <li key={point.id}>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedPoi(point)}
+                                  >
+                                    <span className="point-list__index">
+                                      {pointIndex + 1}
+                                    </span>
+                                    <span className="point-list__text">
+                                      <strong>{point.name}</strong>
+                                      <small>
+                                        {formatCoordinate({
+                                          lat: point.lat,
+                                          lng: point.lng
+                                        })}{" "}
+                                        · {formatDistance(point.distanceMeters)} /{" "}
+                                        {Math.round(point.bearingDeg)}° ·{" "}
+                                        {point.categoryLabel}
+                                      </small>
+                                    </span>
+                                  </button>
+                                </li>
+                              ))}
+                            </ol>
+                            <div className="metrics-row">
+                              <ResultMetric
+                                label="平均半徑"
+                                value={formatDistance(
+                                  favorite.star.radiusMeanMeters
+                                )}
+                              />
+                              <ResultMetric
+                                label="角度"
+                                value={formatDegrees(favorite.star.rotationDeg)}
+                              />
+                              <ResultMetric
+                                label="分數"
+                                value={favorite.star.score.toFixed(3)}
+                              />
+                            </div>
+                          </>
+                        ) : (
+                          <div className="poi-detail favorite-poi-detail">
+                            <div className="subsection-title">
+                              <MapPin aria-hidden="true" />
+                              <strong>收藏地點</strong>
+                            </div>
+                            <strong>{favorite.poi.name}</strong>
+                            <span>{favorite.poi.categoryLabel}</span>
+                            <span>
+                              {formatCoordinate({
+                                lat: favorite.poi.lat,
+                                lng: favorite.poi.lng
+                              })}
+                            </span>
+                          </div>
+                        )}
+                        <div className="action-row">
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => restoreFavorite(favorite)}
+                            disabled={areFavoritesLocked}
+                          >
+                            <MapPin size={17} />
+                            恢復收藏
+                          </button>
+                        </div>
+                        {favorite.type === "star" && (
+                          <div className="download-grid">
+                            <button
+                              type="button"
+                              onClick={() => exportStar(favorite.star, "gpx")}
+                              disabled={areFavoritesLocked}
+                            >
+                              <Download size={16} />
+                              GPX
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => exportStar(favorite.star, "kml")}
+                              disabled={areFavoritesLocked}
+                            >
+                              <Download size={16} />
+                              KML
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </article>
                 );
               })}
             </div>
