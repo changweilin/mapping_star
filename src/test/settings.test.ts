@@ -28,6 +28,7 @@ describe("settings helpers", () => {
   it("defaults to only the religion category", () => {
     expect(DEFAULT_CATEGORY_IDS).toEqual(["religion"]);
     expect(DEFAULT_APP_SETTINGS.selectedCategoryIds).toEqual(["religion"]);
+    expect(DEFAULT_APP_SETTINGS.searchStrategy).toBe("honeycomb");
   });
 
   it("clamps persisted radius range and solver controls to the current UI ranges", () => {
@@ -38,6 +39,8 @@ describe("settings helpers", () => {
       angleToleranceDeg: 36,
       candidatesPerSlot: 99,
       rotationStepDeg: 0,
+      searchStrategy: "angular",
+      hexCellRadiusKm: 99,
       showSectors: false,
       selectedCategoryIds: ["religion", "missing", "station", "station"],
       theme: "dark",
@@ -50,6 +53,8 @@ describe("settings helpers", () => {
     expect(settings.angleToleranceDeg).toBe(30);
     expect(settings.candidatesPerSlot).toBe(12);
     expect(settings.rotationStepDeg).toBe(1);
+    expect(settings.searchStrategy).toBe("angular");
+    expect(settings.hexCellRadiusKm).toBe(10);
     expect(settings.showSectors).toBe(false);
     expect(settings.selectedCategoryIds).toEqual(["religion", "station"]);
     expect(settings.theme).toBe("dark");
@@ -97,6 +102,8 @@ describe("settings helpers", () => {
       ...DEFAULT_APP_SETTINGS,
       innerRadiusKm: 4,
       outerRadiusKm: 12,
+      searchStrategy: "angular",
+      hexCellRadiusKm: 7,
       showSectors: false,
       selectedCategoryIds: ["religion", "station"],
       theme: "dark",
@@ -106,6 +113,8 @@ describe("settings helpers", () => {
     const loaded = loadSettings();
     expect(loaded.innerRadiusKm).toBe(4);
     expect(loaded.outerRadiusKm).toBe(12);
+    expect(loaded.searchStrategy).toBe("angular");
+    expect(loaded.hexCellRadiusKm).toBe(7);
     expect(loaded.showSectors).toBe(false);
     expect(loaded.selectedCategoryIds).toEqual(["religion", "station"]);
     expect(loaded.theme).toBe("dark");

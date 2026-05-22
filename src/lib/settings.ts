@@ -1,5 +1,5 @@
 import { DEFAULT_CATEGORY_IDS, POI_CATEGORIES } from "../data/categories";
-import type { StarMode } from "../types";
+import type { SearchStrategy, StarMode } from "../types";
 
 export const SETTINGS_STORAGE_KEY = "mapping-star:settings";
 
@@ -13,6 +13,8 @@ export interface AppSettings {
   angleToleranceDeg: number;
   candidatesPerSlot: number;
   rotationStepDeg: number;
+  searchStrategy: SearchStrategy;
+  hexCellRadiusKm: number;
   showSectors: boolean;
   selectedCategoryIds: string[];
   theme: ThemeMode;
@@ -26,6 +28,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   angleToleranceDeg: 36,
   candidatesPerSlot: 8,
   rotationStepDeg: 3,
+  searchStrategy: "honeycomb",
+  hexCellRadiusKm: 4,
   showSectors: true,
   selectedCategoryIds: DEFAULT_CATEGORY_IDS,
   theme: "light",
@@ -40,6 +44,11 @@ const clampNumber = (value: unknown, min: number, max: number, fallback: number)
 
 const parseStarMode = (value: unknown): StarMode =>
   value === 6 ? 6 : DEFAULT_APP_SETTINGS.starMode;
+
+const parseSearchStrategy = (value: unknown): SearchStrategy =>
+  value === "angular" || value === "honeycomb"
+    ? value
+    : DEFAULT_APP_SETTINGS.searchStrategy;
 
 const parseTheme = (value: unknown): ThemeMode =>
   value === "dark" || value === "light" ? value : DEFAULT_APP_SETTINGS.theme;
@@ -101,6 +110,13 @@ export const normalizeSettings = (value: unknown): AppSettings => {
       1,
       8,
       DEFAULT_APP_SETTINGS.rotationStepDeg
+    ),
+    searchStrategy: parseSearchStrategy(source.searchStrategy),
+    hexCellRadiusKm: clampNumber(
+      source.hexCellRadiusKm,
+      1,
+      10,
+      DEFAULT_APP_SETTINGS.hexCellRadiusKm
     ),
     showSectors:
       typeof source.showSectors === "boolean"

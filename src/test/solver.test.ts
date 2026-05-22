@@ -71,6 +71,55 @@ describe("star solver", () => {
     expect(results[0].points).toHaveLength(5);
   });
 
+  it("uses honeycomb corner priority by default", () => {
+    const nearCenterPoint = makePoi(0, 0, 7000);
+    const cornerPoint = makePoi(100, 2, 14000);
+    const pois = [
+      nearCenterPoint,
+      cornerPoint,
+      ...[72, 144, 216, 288].map((bearing, index) =>
+        makePoi(index + 1, bearing, 14000)
+      )
+    ];
+
+    const results = solveStarFromPois(pois, {
+      mode: 5,
+      center,
+      radiusMeters: 15000,
+      angleToleranceDeg: 6,
+      candidatesPerSlot: 1,
+      rotationStepDeg: 6
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].points[0].id).toBe(cornerPoint.id);
+  });
+
+  it("can still use the legacy angular strategy", () => {
+    const nearCenterPoint = makePoi(0, 0, 7000);
+    const cornerPoint = makePoi(100, 2, 14000);
+    const pois = [
+      nearCenterPoint,
+      cornerPoint,
+      ...[72, 144, 216, 288].map((bearing, index) =>
+        makePoi(index + 1, bearing, 14000)
+      )
+    ];
+
+    const results = solveStarFromPois(pois, {
+      mode: 5,
+      center,
+      radiusMeters: 15000,
+      angleToleranceDeg: 6,
+      candidatesPerSlot: 1,
+      rotationStepDeg: 6,
+      searchStrategy: "angular"
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].points[0].id).toBe(nearCenterPoint.id);
+  });
+
   it("excludes points inside the inner radius", () => {
     const innerPois = [0, 72, 144, 216, 288].map((bearing, index) =>
       makePoi(index, bearing, 5000)

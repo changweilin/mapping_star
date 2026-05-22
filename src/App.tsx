@@ -65,7 +65,14 @@ import {
 } from "./lib/settings";
 import { solveStarFromPois } from "./lib/solver";
 import { makeAutomaticStarName } from "./lib/starNaming";
-import type { FavoriteItem, LatLng, Poi, StarMode, StarResult } from "./types";
+import type {
+  FavoriteItem,
+  LatLng,
+  Poi,
+  SearchStrategy,
+  StarMode,
+  StarResult
+} from "./types";
 
 type MagicPlaybackMode = "single" | "continuous" | "loop-all" | "loop-one";
 
@@ -338,7 +345,9 @@ const makeAutoSolveKey = ({
   outerRadiusKm,
   angleToleranceDeg,
   candidatesPerSlot,
-  rotationStepDeg
+  rotationStepDeg,
+  searchStrategy,
+  hexCellRadiusKm
 }: {
   mode: StarMode;
   center: LatLng;
@@ -347,6 +356,8 @@ const makeAutoSolveKey = ({
   angleToleranceDeg: number;
   candidatesPerSlot: number;
   rotationStepDeg: number;
+  searchStrategy: SearchStrategy;
+  hexCellRadiusKm: number;
 }) =>
   [
     mode,
@@ -356,7 +367,9 @@ const makeAutoSolveKey = ({
     outerRadiusKm,
     angleToleranceDeg,
     candidatesPerSlot,
-    rotationStepDeg
+    rotationStepDeg,
+    searchStrategy,
+    hexCellRadiusKm
   ].join("|");
 
 const makeCenterIcon = () =>
@@ -808,6 +821,12 @@ function App() {
   const [rotationStepDeg, setRotationStepDeg] = useState(
     initialSettings.rotationStepDeg
   );
+  const [searchStrategy, setSearchStrategy] = useState<SearchStrategy>(
+    initialSettings.searchStrategy
+  );
+  const [hexCellRadiusKm, setHexCellRadiusKm] = useState(
+    initialSettings.hexCellRadiusKm
+  );
   const [showSectors, setShowSectors] = useState(
     initialSettings.showSectors
   );
@@ -910,15 +929,19 @@ function App() {
       innerRadiusMeters,
       angleToleranceDeg: effectiveAngleToleranceDeg,
       candidatesPerSlot,
-      rotationStepDeg
+      rotationStepDeg,
+      searchStrategy,
+      hexCellRadiusMeters: hexCellRadiusKm * 1000
     }),
     [
       candidatesPerSlot,
       center,
       effectiveAngleToleranceDeg,
+      hexCellRadiusKm,
       innerRadiusMeters,
       outerRadiusMeters,
       rotationStepDeg,
+      searchStrategy,
       starMode
     ]
   );
@@ -931,15 +954,19 @@ function App() {
         outerRadiusKm,
         angleToleranceDeg: effectiveAngleToleranceDeg,
         candidatesPerSlot,
-        rotationStepDeg
+        rotationStepDeg,
+        searchStrategy,
+        hexCellRadiusKm
       }),
     [
       candidatesPerSlot,
       center,
       effectiveAngleToleranceDeg,
+      hexCellRadiusKm,
       innerRadiusKm,
       outerRadiusKm,
       rotationStepDeg,
+      searchStrategy,
       starMode
     ]
   );
@@ -1414,6 +1441,8 @@ function App() {
       angleToleranceDeg: effectiveAngleToleranceDeg,
       candidatesPerSlot,
       rotationStepDeg,
+      searchStrategy,
+      hexCellRadiusKm,
       showSectors,
       selectedCategoryIds,
       theme,
@@ -1422,9 +1451,11 @@ function App() {
   }, [
     candidatesPerSlot,
     effectiveAngleToleranceDeg,
+    hexCellRadiusKm,
     innerRadiusKm,
     outerRadiusKm,
     rotationStepDeg,
+    searchStrategy,
     selectedCategoryIds,
     showSectors,
     starMode,
@@ -1657,8 +1688,11 @@ function App() {
     }
   }, [autoSolveKey, solverParams]);
 
-  const runSolver = (nextPois = pois) => {
-    const nextResults = solveStarFromPois(nextPois, solverParams);
+  const runSolver = (nextPois = pois, nextCenter = center) => {
+    const nextResults = solveStarFromPois(nextPois, {
+      ...solverParams,
+      center: nextCenter
+    });
     const eligiblePoiCount = countPoisInCurrentRange(nextPois);
     setResults(nextResults);
     setSelectedResultIndex(0);
@@ -1673,7 +1707,9 @@ function App() {
         starMode === 5 ? "五芒星" : "六芒星"
       }候選。角度容許 ±${effectiveAngleToleranceDeg.toFixed(
         0
-      )}°，每角 ${candidatesPerSlot} 點，搜尋範圍 ${radiusRangeLabel}。`
+      )}°，每角 ${candidatesPerSlot} 點，搜尋範圍 ${radiusRangeLabel}，策略 ${
+        searchStrategy === "honeycomb" ? `蜂巢 ${hexCellRadiusKm} km` : "角度"
+      }。`
     );
 
     return nextResults;
@@ -1705,14 +1741,25 @@ function App() {
     }
   };
 
+  const resolveSearchCenter = async (requireInput: boolean) => {
+    const trimmedSearchText = searchText.trim();
+    if (!trimmedSearchText) {
+      if (requireInput) throw new Error("請輸入地標、地址或座標。");
+      return { center, label: centerName, searched: false };
+    }
+
+    const result = await searchPlace(trimmedSearchText);
+    setCenter(result.center);
+    setCenterName(result.label);
+    mapRef.current?.setView([result.center.lat, result.center.lng], 12);
+    return { ...result, searched: true };
+  };
+
   const handleSearchPlace = async () => {
     setLoading(true);
     setError("");
     try {
-      const result = await searchPlace(searchText);
-      setCenter(result.center);
-      setCenterName(result.label);
-      mapRef.current?.setView([result.center.lat, result.center.lng], 12);
+      const result = await resolveSearchCenter(true);
       setStatus(`中心已移至 ${result.label}。`);
     } catch (searchError) {
       setError(searchError instanceof Error ? searchError.message : "搜尋失敗。");
@@ -1757,11 +1804,14 @@ function App() {
     setError("");
     setSelectedPoi(null);
     try {
-      setProgressStep(8, "準備搜尋範圍");
+      setProgressStep(8, "解析中心地點");
+      const searchCenter = await resolveSearchCenter(false);
+      await waitForPaint();
+      setProgressStep(18, "準備搜尋範圍");
       await waitForPaint();
       setProgressStep(34, "下載地點資料");
       const { pois: nextPois, warnings } = await fetchPoisDetailed(
-        center,
+        searchCenter.center,
         outerRadiusMeters,
         selectedCategories,
         innerRadiusMeters
@@ -1771,7 +1821,7 @@ function App() {
       setPois(mergedPois);
       setProgressStep(68, `分析 ${mergedPois.length} 個候選點`);
       await waitForPaint();
-      const nextResults = runSolver(mergedPois);
+      const nextResults = runSolver(mergedPois, searchCenter.center);
       setProgressStep(
         nextResults.length > 0 ? 92 : 88,
         nextResults.length > 0 ? "繪製魔法陣" : "整理計算結果"
@@ -1873,7 +1923,9 @@ function App() {
       outerRadiusKm: nextOuterRadiusKm,
       angleToleranceDeg: nextAngleToleranceDeg,
       candidatesPerSlot,
-      rotationStepDeg
+      rotationStepDeg,
+      searchStrategy,
+      hexCellRadiusKm
     });
     setCenter(restoredStar.center);
     setCenterName(restoredStar.name ?? favorite.name);
@@ -1898,14 +1950,8 @@ function App() {
     favorites.some((favorite) => favorite.id === `star-${star.id}`);
 
   const getAutomaticNameForStar = (star: StarResult) =>
-    star.name ??
     makeAutomaticStarName({
-      center: star.center,
       centerName,
-      favorites,
-      outerRadiusMeters,
-      pois,
-      selectedCategoryIds,
       star
     });
 
@@ -2359,6 +2405,18 @@ function App() {
               />
               <span>顯示扇形區塊</span>
             </label>
+            <label className="toggle-row">
+              <input
+                type="checkbox"
+                checked={searchStrategy === "honeycomb"}
+                onChange={(event) =>
+                  setSearchStrategy(
+                    event.target.checked ? "honeycomb" : "angular"
+                  )
+                }
+              />
+              <span>蜂巢搜索（預設）</span>
+            </label>
             <div className="solver-controls">
               <label className="range-wrap">
                 <span>角度容許</span>
@@ -2402,6 +2460,22 @@ function App() {
                 />
                 <strong>{rotationStepDeg}°</strong>
               </label>
+              {searchStrategy === "honeycomb" && (
+                <label className="range-wrap">
+                  <span>蜂巢半徑</span>
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    step="1"
+                    value={hexCellRadiusKm}
+                    onChange={(event) =>
+                      setHexCellRadiusKm(Number(event.target.value))
+                    }
+                  />
+                  <strong>{hexCellRadiusKm} km</strong>
+                </label>
+              )}
             </div>
             <div className="status-box" aria-live="polite">
               {calculationProgress ? (

@@ -29,6 +29,7 @@ export interface Poi {
 }
 
 export type StarMode = 5 | 6;
+export type SearchStrategy = "angular" | "honeycomb";
 
 export interface StarResult {
   id: string;
