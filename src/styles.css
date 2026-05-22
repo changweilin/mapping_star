@@ -149,12 +149,27 @@ a {
   box-shadow: var(--shadow);
 }
 
+.map-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  background: var(--app-bg);
+}
+
 .app-header {
+  position: relative;
+  z-index: 500;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
   gap: 18px;
-  padding: 4px 2px 8px;
+  padding: 12px 16px;
+  background: var(--sidebar-bg);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 10px 28px rgba(30, 40, 55, 0.1);
 }
 
 .app-header h1 {
@@ -170,6 +185,7 @@ a {
   grid-template-rows: auto auto;
   align-items: center;
   column-gap: 12px;
+  flex: 0 1 280px;
   min-width: 0;
 }
 
@@ -193,13 +209,16 @@ a {
   position: relative;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
-  flex: 0 0 auto;
+  flex: 1 1 340px;
+  min-width: 0;
 }
 
 .theme-toggle {
   display: inline-grid;
   place-items: center;
+  flex: 0 0 38px;
   width: 38px;
   height: 38px;
   color: var(--blue-dark);
@@ -574,6 +593,11 @@ a {
   padding: 3px;
   background: var(--segmented-bg);
   border-radius: 7px;
+}
+
+.map-layer-row--header {
+  flex: 0 1 300px;
+  width: min(300px, 100%);
 }
 
 .map-layer-row button {
@@ -1141,7 +1165,9 @@ a {
 
 .map-wrap {
   position: relative;
+  flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
   height: 100%;
 }
 
@@ -1885,7 +1911,7 @@ a {
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(380px, 48vh) minmax(0, 1fr);
+    grid-template-rows: minmax(440px, 56vh) minmax(0, 1fr);
     overflow: auto;
   }
 
@@ -1897,14 +1923,51 @@ a {
     border-top: 1px solid var(--line);
   }
 
-  .map-wrap {
+  .map-column {
     order: 1;
-    min-height: 380px;
+    min-height: 440px;
   }
 
 }
 
 @media (max-width: 520px) {
+  .app-header {
+    align-items: stretch;
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .app-header h1 {
+    font-size: 24px;
+  }
+
+  .brand-lockup {
+    grid-template-columns: 40px minmax(0, 1fr);
+    column-gap: 10px;
+    flex-basis: 100%;
+  }
+
+  .brand-mark {
+    width: 40px;
+    height: 40px;
+  }
+
+  .header-actions {
+    width: 100%;
+    flex-basis: 100%;
+    gap: 8px;
+  }
+
+  .map-layer-row--header {
+    flex: 1 1 auto;
+    width: auto;
+  }
+
+  .map-layer-row button {
+    gap: 4px;
+    padding: 0 6px;
+  }
+
   .sidebar {
     padding: 12px;
   }

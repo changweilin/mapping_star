@@ -17,7 +17,6 @@ import {
   ChevronUp,
   Crosshair,
   Download,
-  Layers,
   LocateFixed,
   Map as MapIcon,
   MapPin,
@@ -2113,36 +2112,6 @@ function App() {
   return (
     <main className="app-shell">
       <aside className="sidebar" aria-label="地圖控制">
-        <header className="app-header">
-          <div className="brand-lockup">
-            <img
-              aria-hidden="true"
-              className="brand-mark"
-              src="/logo.png"
-              alt=""
-            />
-            <p className="eyebrow">OpenStreetMap 星形尋點</p>
-            <h1>Mapping Star</h1>
-          </div>
-          <div className="header-actions">
-            <button
-              aria-label={
-                theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
-              }
-              className="theme-toggle"
-              title={
-                theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
-              }
-              type="button"
-              onClick={() =>
-                setTheme((current) => (current === "dark" ? "light" : "dark"))
-              }
-            >
-              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
-          </div>
-        </header>
-
         <section className="magic-player" aria-label="魔法陣播放器">
           <div
             className="magic-player-controls"
@@ -2248,28 +2217,6 @@ function App() {
                 </option>
               ))}
             </MarqueeSelect>
-          </div>
-        </section>
-
-        <section className="panel map-layer-panel">
-          <div className="panel-title">
-            <Layers aria-hidden="true" />
-            <h2>地圖圖層</h2>
-          </div>
-          <div className="map-layer-row" role="group" aria-label="地圖圖層">
-            {MAP_LAYER_OPTIONS.map(({ id, label, Icon }) => (
-              <button
-                aria-pressed={mapLayer === id}
-                className={mapLayer === id ? "selected" : ""}
-                key={id}
-                type="button"
-                title={`切換到${label}圖層`}
-                onClick={() => setMapLayer(id)}
-              >
-                <Icon size={16} />
-                <span>{label}</span>
-              </button>
-            ))}
           </div>
         </section>
 
@@ -2789,16 +2736,66 @@ function App() {
         </section>
       </aside>
 
-      <section className="map-wrap" aria-label="互動地圖">
-        <div ref={mapElementRef} className="map" />
-        <div className="map-counter">
-          <strong>{visiblePois.length}</strong> POI
-          {pois.length !== visiblePois.length && (
-            <span>{pois.length} 已下載</span>
-          )}
-          {visiblePois.length > MAX_RENDERED_POIS && (
-            <span>顯示前 {MAX_RENDERED_POIS} 筆</span>
-          )}
+      <section className="map-column" aria-label="互動地圖">
+        <header className="app-header">
+          <div className="brand-lockup">
+            <img
+              aria-hidden="true"
+              className="brand-mark"
+              src="/logo.png"
+              alt=""
+            />
+            <p className="eyebrow">OpenStreetMap 星形尋點</p>
+            <h1>Mapping Star</h1>
+          </div>
+          <div className="header-actions">
+            <div
+              className="map-layer-row map-layer-row--header"
+              role="group"
+              aria-label="地圖圖層"
+            >
+              {MAP_LAYER_OPTIONS.map(({ id, label, Icon }) => (
+                <button
+                  aria-pressed={mapLayer === id}
+                  className={mapLayer === id ? "selected" : ""}
+                  key={id}
+                  type="button"
+                  title={`切換到${label}圖層`}
+                  onClick={() => setMapLayer(id)}
+                >
+                  <Icon size={16} />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+            <button
+              aria-label={
+                theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+              }
+              className="theme-toggle"
+              title={
+                theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+              }
+              type="button"
+              onClick={() =>
+                setTheme((current) => (current === "dark" ? "light" : "dark"))
+              }
+            >
+              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+          </div>
+        </header>
+        <div className="map-wrap">
+          <div ref={mapElementRef} className="map" />
+          <div className="map-counter">
+            <strong>{visiblePois.length}</strong> POI
+            {pois.length !== visiblePois.length && (
+              <span>{pois.length} 已下載</span>
+            )}
+            {visiblePois.length > MAX_RENDERED_POIS && (
+              <span>顯示前 {MAX_RENDERED_POIS} 筆</span>
+            )}
+          </div>
         </div>
       </section>
     </main>
