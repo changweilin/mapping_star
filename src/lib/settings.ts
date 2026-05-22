@@ -130,8 +130,8 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     searchStrategy: parseSearchStrategy(source.searchStrategy),
     hexCellRadiusKm: clampSteppedNumber(
       source.hexCellRadiusKm,
-      0.1,
-      10,
+      0.3,
+      3,
       DEFAULT_APP_SETTINGS.hexCellRadiusKm,
       0.1
     ),

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { POI_CATEGORIES } from "../data/categories";
 import { destinationPoint } from "../lib/geo";
-import { solveStarFromPois, starLineSequences } from "../lib/solver";
+import {
+  solveStarFromPois,
+  solveStarFromPoisSteps,
+  starLineSequences
+} from "../lib/solver";
 import type { Poi } from "../types";
 
 const center = { lat: 25.033964, lng: 121.564468 };
@@ -53,6 +57,7 @@ describe("star solver", () => {
     expect(results[0].points.map((point) => point.id)).toHaveLength(5);
     expect(new Set(results[0].points.map((point) => point.id)).size).toBe(5);
     expect(results[0].angleErrorDeg).toBeLessThan(1);
+    expect(results[0].centerErrorMeters).toBeLessThan(1);
   });
 
   it("honors one candidate per slot", () => {
@@ -71,14 +76,14 @@ describe("star solver", () => {
     expect(results[0].points).toHaveLength(5);
   });
 
-  it("uses honeycomb corner priority by default", () => {
-    const nearCenterPoint = makePoi(0, 0, 7000);
-    const cornerPoint = makePoi(100, 2, 14000);
+  it("uses the inner and outer radius average as the honeycomb target", () => {
+    const targetRadiusPoint = makePoi(0, 0, 7000);
+    const outerRadiusPoint = makePoi(100, 2, 14000);
     const pois = [
-      nearCenterPoint,
-      cornerPoint,
+      targetRadiusPoint,
+      outerRadiusPoint,
       ...[72, 144, 216, 288].map((bearing, index) =>
-        makePoi(index + 1, bearing, 14000)
+        makePoi(index + 1, bearing, 7000)
       )
     ];
 
@@ -92,64 +97,104 @@ describe("star solver", () => {
     });
 
     expect(results).toHaveLength(1);
-    expect(results[0].points[0].id).toBe(cornerPoint.id);
+    expect(results[0].points[0].id).toBe(targetRadiusPoint.id);
   });
 
-  it("tries a complete honeycomb ring before widening to neighboring matches", () => {
-    const honeycombPois = [0, 72, 144, 216, 288].map((bearing, index) =>
-      makePoi(index, bearing, index % 2 === 0 ? 11000 : 14900)
+  it("reports target honeycomb corners before radial expansion", () => {
+    const targetPois = [0, 72, 144, 216, 288].map((bearing, index) =>
+      makePoi(index, bearing, 10000)
     );
-    const neighboringPois = [0, 72, 144, 216, 288].map((bearing, index) =>
-      makePoi(index + 10, bearing, 6000)
+    const outerPois = [0, 72, 144, 216, 288].map((bearing, index) =>
+      makePoi(index + 10, bearing, 14000)
     );
 
-    const results = solveStarFromPois([...neighboringPois, ...honeycombPois], {
+    const iterator = solveStarFromPoisSteps([...outerPois, ...targetPois], {
       mode: 5,
       center,
       radiusMeters: 15000,
-      angleToleranceDeg: 30,
-      candidatesPerSlot: 2,
-      rotationStepDeg: 72,
-      hexCellRadiusMeters: 10000,
-      hexPriorityRings: 0
-    });
-
-    expect(results.length).toBeGreaterThan(0);
-    expect(results[0].points.map((point) => point.id)).toEqual(
-      honeycombPois.map((point) => point.id)
-    );
-  });
-
-  it("continues searching neighboring honeycomb rings after the first result", () => {
-    const honeycombPois = [0, 72, 144, 216, 288].map((bearing, index) =>
-      makePoi(index, bearing, 11000)
-    );
-    const neighboringPois = [0, 72, 144, 216, 288].map((bearing, index) =>
-      makePoi(index + 10, bearing, 6000)
-    );
-
-    const results = solveStarFromPois([...neighboringPois, ...honeycombPois], {
-      mode: 5,
-      center,
-      radiusMeters: 15000,
+      innerRadiusMeters: 5000,
       angleToleranceDeg: 30,
       candidatesPerSlot: 1,
       rotationStepDeg: 72,
       hexCellRadiusMeters: 10000,
       hexPriorityRings: 1
     });
+    const firstProgress = iterator.next();
 
-    const neighboringIds = neighboringPois.map((point) => point.id);
-    expect(results[0].points.map((point) => point.id)).toEqual(
-      honeycombPois.map((point) => point.id)
+    expect(firstProgress.done).toBe(false);
+    if (!firstProgress.done) {
+      expect(firstProgress.value.stage).toBe("target-corners");
+      expect(firstProgress.value.label).toContain("第 1 到 5 號目標蜂巢");
+    }
+  });
+
+  it("finishes target-radius rotations before expanding inward and outward", () => {
+    const targetPois = [0, 72, 144, 216, 288].map((bearing, index) =>
+      makePoi(index, bearing, 10000)
     );
+    const outerPois = [0, 72, 144, 216, 288].map((bearing, index) =>
+      makePoi(index + 10, bearing, 12000)
+    );
+
+    const progress = Array.from(
+      solveStarFromPoisSteps([...outerPois, ...targetPois], {
+        mode: 5,
+        center,
+        radiusMeters: 15000,
+        innerRadiusMeters: 5000,
+        angleToleranceDeg: 30,
+        candidatesPerSlot: 1,
+        rotationStepDeg: 18,
+        hexCellRadiusMeters: 2000,
+        hexPriorityRings: 1
+      })
+    );
+
+    const firstExpansionIndex = progress.findIndex(
+      (step) => step.stage === "radius-expansion"
+    );
+    expect(firstExpansionIndex).toBeGreaterThan(0);
     expect(
-      results.some(
-        (result) =>
-          result.points.map((point) => point.id).join("|") ===
-          neighboringIds.join("|")
-      )
+      progress
+        .slice(0, firstExpansionIndex)
+        .every(
+          (step) =>
+            step.stage === "target-corners" ||
+            step.stage === "target-rotation"
+        )
     ).toBe(true);
+  });
+
+  it("continues radial expansion after target honeycomb cells", () => {
+    const targetPois = [0, 72, 144, 216, 288].map((bearing, index) =>
+      makePoi(index, bearing, 10000)
+    );
+    const neighboringPois = [0, 72, 144, 216, 288].map((bearing, index) =>
+      makePoi(index + 10, bearing, 14000)
+    );
+
+    const progress = Array.from(
+      solveStarFromPoisSteps([...neighboringPois, ...targetPois], {
+        mode: 5,
+        center,
+        radiusMeters: 15000,
+        innerRadiusMeters: 5000,
+        angleToleranceDeg: 30,
+        candidatesPerSlot: 1,
+        rotationStepDeg: 72,
+        hexCellRadiusMeters: 2000,
+        hexPriorityRings: 6,
+        maxResults: 40
+      })
+    );
+
+    const targetIds = targetPois.map((point) => point.id);
+    const firstResultProgress = progress.find((step) => step.results.length > 0);
+
+    expect(firstResultProgress?.stage).toBe("radius-expansion");
+    expect(firstResultProgress?.results[0].points.map((point) => point.id)).toEqual(
+      targetIds
+    );
   });
 
   it("can still use the legacy angular strategy", () => {

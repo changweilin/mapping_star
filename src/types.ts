@@ -42,6 +42,7 @@ export interface StarResult {
   radiusMeanMeters: number;
   radiusStdMeters: number;
   angleErrorDeg: number;
+  centerErrorMeters: number;
   createdAt: string;
 }
 

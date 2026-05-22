@@ -57,7 +57,7 @@ describe("settings helpers", () => {
     expect(settings.candidatesPerSlot).toBe(12);
     expect(settings.rotationStepDeg).toBe(1);
     expect(settings.searchStrategy).toBe("angular");
-    expect(settings.hexCellRadiusKm).toBe(10);
+    expect(settings.hexCellRadiusKm).toBe(3);
     expect(settings.showSectors).toBe(false);
     expect(settings.showHoneycomb).toBe(true);
     expect(settings.selectedCategoryIds).toEqual(["religion", "station"]);
@@ -107,7 +107,7 @@ describe("settings helpers", () => {
       innerRadiusKm: 4,
       outerRadiusKm: 12,
       searchStrategy: "angular",
-      hexCellRadiusKm: 7,
+      hexCellRadiusKm: 2.7,
       showSectors: false,
       showHoneycomb: true,
       selectedCategoryIds: ["religion", "station"],
@@ -119,7 +119,7 @@ describe("settings helpers", () => {
     expect(loaded.innerRadiusKm).toBe(4);
     expect(loaded.outerRadiusKm).toBe(12);
     expect(loaded.searchStrategy).toBe("angular");
-    expect(loaded.hexCellRadiusKm).toBe(7);
+    expect(loaded.hexCellRadiusKm).toBe(2.7);
     expect(loaded.showSectors).toBe(false);
     expect(loaded.showHoneycomb).toBe(true);
     expect(loaded.selectedCategoryIds).toEqual(["religion", "station"]);

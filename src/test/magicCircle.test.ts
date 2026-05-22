@@ -41,6 +41,7 @@ const makeResult = (mode: StarMode): StarResult => ({
   radiusMeanMeters: 1600,
   radiusStdMeters: 20,
   angleErrorDeg: 1.5,
+  centerErrorMeters: 0,
   createdAt: "2026-05-21T00:00:00.000Z"
 });
 

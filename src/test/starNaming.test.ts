@@ -32,6 +32,7 @@ const makeStar = (
   radiusMeanMeters,
   radiusStdMeters: 0,
   angleErrorDeg,
+  centerErrorMeters: 0,
   createdAt: "2026-05-22T00:00:00.000Z"
 });
 

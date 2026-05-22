@@ -48,6 +48,7 @@ const star: StarResult = {
   radiusMeanMeters: 1000,
   radiusStdMeters: 10,
   angleErrorDeg: 1,
+  centerErrorMeters: 0,
   createdAt: "2026-05-21T00:00:00.000Z"
 };
 
