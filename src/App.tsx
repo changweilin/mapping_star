@@ -78,6 +78,7 @@ type MobileSettingsTab =
   | "search"
   | "categories"
   | "drawing"
+  | "logs"
   | "results"
   | "favorites";
 
@@ -85,6 +86,9 @@ const DEFAULT_CENTER: LatLng = { lat: 25.033964, lng: 121.564468 };
 const MAX_RENDERED_POIS = 350;
 const MAX_RADIUS_KM = 30;
 const MAX_STAR_RESULTS = 5;
+const HONEYCOMB_PREVIEW_PRIORITY_RINGS = 2;
+const MAX_HONEYCOMB_PREVIEW_CELLS = 240;
+const SQRT_3 = Math.sqrt(3);
 const MAGIC_POINT_DELAY_MS = 1880;
 const MAGIC_POINT_STEP_MS = 90;
 const MAGIC_POINT_DURATION_MS = 520;
@@ -103,9 +107,19 @@ const MOBILE_SETTINGS_TABS = [
   { id: "search", label: "搜索中心" },
   { id: "categories", label: "目標類別" },
   { id: "drawing", label: "繪圖設定" },
+  { id: "logs", label: "計算紀錄" },
   { id: "results", label: "繪圖結果" },
   { id: "favorites", label: "我的最愛" }
 ] satisfies Array<{ id: MobileSettingsTab; label: string }>;
+
+const DEFAULT_DESKTOP_SECTION_EXPANSION = {
+  search: true,
+  categories: false,
+  drawing: true,
+  logs: true,
+  results: true,
+  favorites: false
+} satisfies Record<MobileSettingsTab, boolean>;
 
 type RadiusHandle = "inner" | "outer";
 type MagicPlayback = "playing" | "paused" | "ended";
@@ -173,6 +187,28 @@ type DrawSummary = {
 type ProgressStep = {
   percent: number;
   label: string;
+};
+type HexCell = {
+  q: number;
+  r: number;
+};
+type HoneycombPreviewCell = {
+  key: string;
+  order: number;
+  ring: number;
+  center: LatLng;
+  polygon: LatLng[];
+};
+type CalculationRecord = {
+  id: string;
+  status: "completed" | "empty" | "cancelled" | "failed";
+  sourceLabel: string;
+  title: string;
+  message: string;
+  startedAtIso: string;
+  finishedAtIso: string;
+  totalElapsedMs: number;
+  summary: DrawSummary | null;
 };
 
 type MapTileLayerConfig = {
@@ -475,6 +511,55 @@ const getHoneycombSolveProgressSteps = (): ProgressStep[] => [
   { percent: 82, label: "掃描蜂巢環帶與候選組合" }
 ];
 
+const makeCalculationRecordFromSummary = (
+  summary: DrawSummary
+): CalculationRecord => {
+  const status = summary.resultCount > 0 ? "completed" : "empty";
+
+  return {
+    id: summary.id,
+    status,
+    sourceLabel: summary.sourceLabel,
+    title:
+      status === "completed"
+        ? `${summary.sourceLabel}完成`
+        : `${summary.sourceLabel}完成，尚無魔法陣`,
+    message: formatDrawSummaryStatus(summary),
+    startedAtIso: summary.startedAtIso,
+    finishedAtIso: summary.finishedAtIso,
+    totalElapsedMs: summary.totalElapsedMs,
+    summary
+  };
+};
+
+const makeCalculationMessageRecord = ({
+  status,
+  sourceLabel,
+  title,
+  message,
+  startedAtIso,
+  startedAtMs,
+  finishedAtMs
+}: {
+  status: "cancelled" | "failed";
+  sourceLabel: string;
+  title: string;
+  message: string;
+  startedAtIso: string;
+  startedAtMs: number;
+  finishedAtMs: number;
+}): CalculationRecord => ({
+  id: `calculation-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  status,
+  sourceLabel,
+  title,
+  message,
+  startedAtIso,
+  finishedAtIso: new Date().toISOString(),
+  totalElapsedMs: finishedAtMs - startedAtMs,
+  summary: null
+});
+
 const mergePois = (currentPois: Poi[], nextPois: Poi[]) => {
   const byId = new Map(currentPois.map((poi) => [poi.id, poi]));
   nextPois.forEach((poi) => byId.set(poi.id, poi));
@@ -574,6 +659,14 @@ const makeMagicSymbolIcon = (stroke: MagicSymbolStroke) =>
     html: makeMagicSymbolHtml(stroke),
     iconSize: [0, 0],
     iconAnchor: [0, 0]
+  });
+
+const makeHoneycombOrderIcon = (order: number) =>
+  L.divIcon({
+    className: "honeycomb-order-marker",
+    html: `<span>${order}</span>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13]
   });
 
 const downloadText = (filename: string, content: string, type: string) => {
@@ -808,6 +901,205 @@ const makeSectorPolygon = (
   return points;
 };
 
+const getHoneycombTargetRadiusMeters = (
+  outerRadiusMeters: number,
+  innerRadiusMeters: number
+) => {
+  const radiusRangeMeters = Math.max(1, outerRadiusMeters - innerRadiusMeters);
+  return innerRadiusMeters > 0
+    ? innerRadiusMeters + radiusRangeMeters / 2
+    : outerRadiusMeters;
+};
+
+const normalizeHoneycombCellRadius = (
+  outerRadiusMeters: number,
+  hexCellRadiusMeters: number
+) =>
+  Math.max(
+    250,
+    Math.min(Math.max(250, outerRadiusMeters), hexCellRadiusMeters)
+  );
+
+const makeHoneycombPlanarPoint = (
+  distanceMeters: number,
+  bearingDeg: number
+) => {
+  const bearing = (bearingDeg * Math.PI) / 180;
+  return {
+    x: distanceMeters * Math.sin(bearing),
+    y: distanceMeters * Math.cos(bearing)
+  };
+};
+
+const makeHoneycombLatLng = (center: LatLng, x: number, y: number) => {
+  const distanceMeters = Math.hypot(x, y);
+  const bearingDeg = normalizeDegrees((Math.atan2(x, y) * 180) / Math.PI);
+  return destinationPoint(center, distanceMeters, bearingDeg);
+};
+
+const getHoneycombCellKey = ({ q, r }: HexCell) => `${q},${r}`;
+
+const roundHoneycombCell = (q: number, r: number): HexCell => {
+  const s = -q - r;
+  let roundedQ = Math.round(q);
+  let roundedR = Math.round(r);
+  let roundedS = Math.round(s);
+
+  const qDiff = Math.abs(roundedQ - q);
+  const rDiff = Math.abs(roundedR - r);
+  const sDiff = Math.abs(roundedS - s);
+
+  if (qDiff > rDiff && qDiff > sDiff) {
+    roundedQ = -roundedR - roundedS;
+  } else if (rDiff > sDiff) {
+    roundedR = -roundedQ - roundedS;
+  } else {
+    roundedS = -roundedQ - roundedR;
+  }
+
+  return { q: roundedQ, r: roundedR };
+};
+
+const honeycombPointToCell = (
+  { x, y }: { x: number; y: number },
+  cellRadiusMeters: number
+) =>
+  roundHoneycombCell(
+    ((SQRT_3 / 3) * x - y / 3) / cellRadiusMeters,
+    ((2 / 3) * y) / cellRadiusMeters
+  );
+
+const addHoneycombCell = (a: HexCell, b: HexCell, scale = 1): HexCell => ({
+  q: a.q + b.q * scale,
+  r: a.r + b.r * scale
+});
+
+const HONEYCOMB_DIRECTIONS: HexCell[] = [
+  { q: 1, r: 0 },
+  { q: 1, r: -1 },
+  { q: 0, r: -1 },
+  { q: -1, r: 0 },
+  { q: -1, r: 1 },
+  { q: 0, r: 1 }
+];
+
+const getHoneycombRing = (center: HexCell, ring: number) => {
+  if (ring === 0) return [center];
+
+  const cells: HexCell[] = [];
+  let current = addHoneycombCell(center, HONEYCOMB_DIRECTIONS[4], ring);
+
+  for (const direction of HONEYCOMB_DIRECTIONS) {
+    for (let step = 0; step < ring; step += 1) {
+      cells.push(current);
+      current = addHoneycombCell(current, direction);
+    }
+  }
+
+  return cells;
+};
+
+const getHoneycombCellCenterPlanar = (
+  cell: HexCell,
+  cellRadiusMeters: number
+) => ({
+  x: cellRadiusMeters * SQRT_3 * (cell.q + cell.r / 2),
+  y: cellRadiusMeters * 1.5 * cell.r
+});
+
+const makeHoneycombPolygon = (
+  center: LatLng,
+  cellRadiusMeters: number
+) =>
+  Array.from({ length: 6 }, (_, index) =>
+    destinationPoint(center, cellRadiusMeters, index * 60)
+  );
+
+const makeHoneycombPreviewCells = ({
+  mode,
+  center,
+  innerRadiusMeters,
+  outerRadiusMeters,
+  rotationStepDeg,
+  hexCellRadiusMeters
+}: {
+  mode: StarMode;
+  center: LatLng;
+  innerRadiusMeters: number;
+  outerRadiusMeters: number;
+  rotationStepDeg: number;
+  hexCellRadiusMeters: number;
+}): HoneycombPreviewCell[] => {
+  const slotWidth = 360 / mode;
+  const step = Math.max(1, Math.min(slotWidth, rotationStepDeg));
+  const cellRadiusMeters = normalizeHoneycombCellRadius(
+    outerRadiusMeters,
+    hexCellRadiusMeters
+  );
+  const targetRadiusMeters = getHoneycombTargetRadiusMeters(
+    outerRadiusMeters,
+    innerRadiusMeters
+  );
+  const rotations: number[] = [];
+  const seen = new Set<string>();
+  const cells: HoneycombPreviewCell[] = [];
+
+  for (let rotationDeg = 0; rotationDeg < slotWidth; rotationDeg += step) {
+    rotations.push(rotationDeg);
+  }
+
+  for (const rotationDeg of rotations) {
+    for (let slotIndex = 0; slotIndex < mode; slotIndex += 1) {
+      const targetBearing = normalizeDegrees(
+        rotationDeg + slotWidth * slotIndex
+      );
+      const targetCell = honeycombPointToCell(
+        makeHoneycombPlanarPoint(targetRadiusMeters, targetBearing),
+        cellRadiusMeters
+      );
+
+      for (let ring = 0; ring <= HONEYCOMB_PREVIEW_PRIORITY_RINGS; ring += 1) {
+        for (const cell of getHoneycombRing(targetCell, ring)) {
+          const key = getHoneycombCellKey(cell);
+          if (seen.has(key)) continue;
+
+          const planarCenter = getHoneycombCellCenterPlanar(
+            cell,
+            cellRadiusMeters
+          );
+          const distanceFromCenter = Math.hypot(
+            planarCenter.x,
+            planarCenter.y
+          );
+          const overlapsSearchRange =
+            distanceFromCenter <= outerRadiusMeters + cellRadiusMeters &&
+            distanceFromCenter >=
+              Math.max(0, innerRadiusMeters - cellRadiusMeters);
+          if (!overlapsSearchRange) continue;
+
+          seen.add(key);
+          const cellCenter = makeHoneycombLatLng(
+            center,
+            planarCenter.x,
+            planarCenter.y
+          );
+          cells.push({
+            key,
+            order: cells.length + 1,
+            ring,
+            center: cellCenter,
+            polygon: makeHoneycombPolygon(cellCenter, cellRadiusMeters)
+          });
+
+          if (cells.length >= MAX_HONEYCOMB_PREVIEW_CELLS) return cells;
+        }
+      }
+    }
+  }
+
+  return cells;
+};
+
 const ResultMetric = ({
   label,
   value
@@ -819,6 +1111,111 @@ const ResultMetric = ({
     <span>{label}</span>
     <strong>{value}</strong>
   </span>
+);
+
+const DrawSummaryDetails = ({ summary }: { summary: DrawSummary }) => (
+  <>
+    <div className="draw-summary__metrics">
+      <ResultMetric
+        label="首個魔法陣"
+        value={formatElapsedMs(summary.firstResultElapsedMs)}
+      />
+      <ResultMetric
+        label="總耗時"
+        value={formatElapsedMs(summary.totalElapsedMs)}
+      />
+      <ResultMetric
+        label="找到數量"
+        value={`${summary.resultCount} 組 / 上限 ${summary.resultLimit}`}
+      />
+      <ResultMetric
+        label="候選點"
+        value={`${summary.eligiblePoiCount} / ${summary.totalPoiCount}`}
+      />
+      <ResultMetric
+        label="搜尋下載"
+        value={
+          summary.searchElapsedMs === null
+            ? "不適用"
+            : formatElapsedMs(summary.searchElapsedMs)
+        }
+      />
+      <ResultMetric
+        label="最終計算"
+        value={formatElapsedMs(summary.solveElapsedMs)}
+      />
+      <ResultMetric
+        label="預覽計算"
+        value={
+          summary.previewSolveCount > 0
+            ? `${summary.previewSolveCount} 次 / ${formatElapsedMs(
+                summary.previewSolveElapsedMs
+              )}`
+            : "0 次"
+        }
+      />
+      <ResultMetric
+        label="地圖渲染"
+        value={formatElapsedMs(summary.renderElapsedMs)}
+      />
+      <ResultMetric
+        label="動畫估計"
+        value={formatElapsedMs(summary.estimatedAnimationMs)}
+      />
+    </div>
+    <dl className="draw-summary__details">
+      <div>
+        <dt>首個完成時間</dt>
+        <dd>
+          {formatClockTime(summary.firstResultAtIso)}
+          {summary.firstResultSourceLabel
+            ? ` · ${summary.firstResultSourceLabel}`
+            : ""}
+        </dd>
+      </div>
+      <div>
+        <dt>中心</dt>
+        <dd>
+          {summary.centerLabel} · {summary.centerCoordinate}
+        </dd>
+      </div>
+      <div>
+        <dt>範圍與模式</dt>
+        <dd>
+          {summary.radiusRangeLabel} · {getStarModeLabel(summary.mode)} ·{" "}
+          {getSearchStrategyLabel(summary)}
+        </dd>
+      </div>
+      <div>
+        <dt>搜尋參數</dt>
+        <dd>
+          角度 ±{summary.angleToleranceDeg.toFixed(0)}° · 每角{" "}
+          {summary.candidatesPerSlot} 點 · 旋轉步距 {summary.rotationStepDeg}°
+        </dd>
+      </div>
+      <div>
+        <dt>資料統計</dt>
+        <dd>
+          {summary.fetchedPoiCount === null
+            ? "使用目前點位"
+            : `本次取得 ${summary.fetchedPoiCount} 筆，新增 ${summary.addedPoiCount} 筆`}
+          {summary.categoryCount === null
+            ? ""
+            : ` · 類別 ${summary.categoryCount} 個`}
+          {summary.warningCount > 0 ? ` · 提醒 ${summary.warningCount} 則` : ""}
+        </dd>
+      </div>
+      <div>
+        <dt>動畫設定</dt>
+        <dd>
+          {summary.animationLabel} · {summary.magicSpeed}x
+        </dd>
+      </div>
+    </dl>
+    {summary.notes.length > 0 && (
+      <p className="draw-summary__notes">{summary.notes.join(" ")}</p>
+    )}
+  </>
 );
 
 const RadiusRangeControl = ({
@@ -982,6 +1379,7 @@ function App() {
   const poiLayerRef = useRef<L.LayerGroup | null>(null);
   const starLayerRef = useRef<L.LayerGroup | null>(null);
   const sectorLayerRef = useRef<L.LayerGroup | null>(null);
+  const honeycombLayerRef = useRef<L.LayerGroup | null>(null);
   const skipNextAutoSolveRef = useRef<string | null>(null);
   const [initialSettings] = useState(() =>
     typeof window === "undefined" ? DEFAULT_APP_SETTINGS : loadSettings()
@@ -1025,16 +1423,18 @@ function App() {
   const [showSectors, setShowSectors] = useState(
     initialSettings.showSectors
   );
+  const [showHoneycomb, setShowHoneycomb] = useState(
+    initialSettings.showHoneycomb
+  );
   const [theme, setTheme] = useState(initialSettings.theme);
   const [mapLayer, setMapLayer] = useState<MapLayerId>(
     initialSettings.mapLayer
   );
   const [selectedCategoryIds, setSelectedCategoryIds] =
     useState<string[]>(initialSettings.selectedCategoryIds);
-  const [isCategoryPanelExpanded, setIsCategoryPanelExpanded] =
-    useState(false);
-  const [isSolverPanelExpanded, setIsSolverPanelExpanded] =
-    useState(false);
+  const [expandedDesktopSections, setExpandedDesktopSections] = useState<
+    Record<MobileSettingsTab, boolean>
+  >(DEFAULT_DESKTOP_SECTION_EXPANSION);
   const [pois, setPois] = useState<Poi[]>([]);
   const [results, setResults] = useState<StarResult[]>(
     initialLastStar ? [initialLastStar] : []
@@ -1073,7 +1473,9 @@ function App() {
   const [isSearchDrawing, setIsSearchDrawing] = useState(false);
   const [calculationProgress, setCalculationProgress] =
     useState<CalculationProgress | null>(null);
-  const [drawSummary, setDrawSummary] = useState<DrawSummary | null>(null);
+  const [calculationRecords, setCalculationRecords] = useState<
+    CalculationRecord[]
+  >([]);
   const [mobileMapSplitPercent, setMobileMapSplitPercent] = useState(50);
   const [mobileSettingsSwipeOffsetPx, setMobileSettingsSwipeOffsetPx] =
     useState(0);
@@ -1098,13 +1500,6 @@ function App() {
       ),
     [selectedCategoryIds]
   );
-  const categoryToggleLabel = isCategoryPanelExpanded
-    ? "收合目標類別"
-    : "展開目標類別";
-  const solverToggleLabel = isSolverPanelExpanded
-    ? "收合星形計算"
-    : "展開星形計算";
-
   const selectedResult = results[selectedResultIndex] ?? null;
   const magicAnimationOptions = useMemo(
     () => getMagicAnimationOptions(selectedResult?.mode ?? starMode),
@@ -1123,9 +1518,45 @@ function App() {
   const CurrentMapLayerIcon = currentMapLayerOption.Icon;
   const searchDrawButtonLabel = isSearchDrawing ? "取消搜索" : "搜索繪製";
   const isSearchSettingsLocked = isSearchDrawing;
-  const areCategoryOptionsExpanded =
-    isMobileLayout || isCategoryPanelExpanded;
-  const isSolverAdvancedExpanded = isMobileLayout || isSolverPanelExpanded;
+  const isSidebarSectionExpanded = (tab: MobileSettingsTab) =>
+    isMobileLayout || expandedDesktopSections[tab];
+  const toggleDesktopSection = (tab: MobileSettingsTab) => {
+    setExpandedDesktopSections((current) => ({
+      ...current,
+      [tab]: !current[tab]
+    }));
+  };
+  const renderPanelTitle = (
+    tab: MobileSettingsTab,
+    label: string,
+    Icon: typeof Sparkles
+  ) => {
+    const isExpanded = isSidebarSectionExpanded(tab);
+    const actionLabel = `${isExpanded ? "收合" : "展開"}${label}`;
+
+    return (
+      <div className="panel-title panel-title--with-action">
+        <div className="panel-title-main">
+          <Icon aria-hidden="true" />
+          <h2>{label}</h2>
+        </div>
+        {!isMobileLayout && (
+          <button
+            className="panel-collapse-button"
+            type="button"
+            aria-expanded={isExpanded}
+            aria-label={actionLabel}
+            title={actionLabel}
+            onClick={() => toggleDesktopSection(tab)}
+          >
+            {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+          </button>
+        )}
+      </div>
+    );
+  };
+  const areCategoryOptionsExpanded = isSidebarSectionExpanded("categories");
+  const isSolverAdvancedExpanded = isSidebarSectionExpanded("drawing");
   const appShellStyle = {
     "--mobile-map-split": `${mobileMapSplitPercent}%`,
     "--mobile-tab-swipe-offset": `${mobileSettingsSwipeOffsetPx}px`
@@ -1134,7 +1565,9 @@ function App() {
     tab: MobileSettingsTab,
     className = "panel"
   ) =>
-    `${className} mobile-tab-panel ${
+    `${className} mobile-tab-panel desktop-collapsible-panel ${
+      isSidebarSectionExpanded(tab) ? "" : "desktop-collapsible-panel--collapsed"
+    } ${
       activeMobileSettingsTab === tab ? "mobile-tab-panel--active" : ""
     }`;
   const innerRadiusMeters = innerRadiusKm * 1000;
@@ -1475,6 +1908,9 @@ function App() {
     magicSpeed: magicSpeedRef.current,
     notes
   });
+  const addCalculationRecord = (record: CalculationRecord) => {
+    setCalculationRecords((current) => [record, ...current]);
+  };
   const clearProgressTimer = () => {
     if (progressClearTimerRef.current === null) return;
     window.clearTimeout(progressClearTimerRef.current);
@@ -1928,6 +2364,7 @@ function App() {
     L.control.zoom({ position: "bottomright" }).addTo(map);
 
     centerLayerRef.current = L.layerGroup().addTo(map);
+    honeycombLayerRef.current = L.layerGroup().addTo(map);
     sectorLayerRef.current = L.layerGroup().addTo(map);
     poiLayerRef.current = L.layerGroup().addTo(map);
     starLayerRef.current = L.layerGroup().addTo(map);
@@ -1948,6 +2385,11 @@ function App() {
       map.remove();
       mapRef.current = null;
       tileLayerRef.current = null;
+      centerLayerRef.current = null;
+      honeycombLayerRef.current = null;
+      sectorLayerRef.current = null;
+      poiLayerRef.current = null;
+      starLayerRef.current = null;
     };
   }, []);
 
@@ -2067,6 +2509,7 @@ function App() {
       searchStrategy,
       hexCellRadiusKm,
       showSectors,
+      showHoneycomb,
       selectedCategoryIds,
       theme,
       mapLayer
@@ -2080,6 +2523,7 @@ function App() {
     rotationStepDeg,
     searchStrategy,
     selectedCategoryIds,
+    showHoneycomb,
     showSectors,
     starMode,
     theme,
@@ -2116,6 +2560,51 @@ function App() {
       .bindTooltip("中心點", { direction: "top" })
       .addTo(group);
   }, [center, innerRadiusMeters, outerRadiusMeters]);
+
+  useEffect(() => {
+    const group = honeycombLayerRef.current;
+    if (!group) return;
+    group.clearLayers();
+    if (!showHoneycomb || searchStrategy !== "honeycomb") return;
+
+    const cells = makeHoneycombPreviewCells({
+      mode: starMode,
+      center,
+      innerRadiusMeters,
+      outerRadiusMeters,
+      rotationStepDeg,
+      hexCellRadiusMeters: hexCellRadiusKm * 1000
+    });
+
+    cells.forEach((cell) => {
+      L.polygon(
+        cell.polygon.map(({ lat, lng }) => [lat, lng] as L.LatLngTuple),
+        {
+          color: cell.ring === 0 ? "#263fd1" : "#4b65d9",
+          fillColor: cell.ring === 0 ? "#f2a12b" : "#6aa3ff",
+          fillOpacity: cell.ring === 0 ? 0.12 : 0.07,
+          interactive: false,
+          opacity: 0.55,
+          weight: cell.ring === 0 ? 1.35 : 1
+        }
+      ).addTo(group);
+      L.marker([cell.center.lat, cell.center.lng], {
+        icon: makeHoneycombOrderIcon(cell.order),
+        interactive: false,
+        keyboard: false,
+        zIndexOffset: -900
+      }).addTo(group);
+    });
+  }, [
+    center,
+    hexCellRadiusKm,
+    innerRadiusMeters,
+    outerRadiusMeters,
+    rotationStepDeg,
+    searchStrategy,
+    showHoneycomb,
+    starMode
+  ]);
 
   useEffect(() => {
     const group = poiLayerRef.current;
@@ -2325,15 +2814,37 @@ function App() {
 
     if (pois.length === 0) return;
 
+    const startedAtMs = getNowMs();
+    const startedAtIso = new Date().toISOString();
     const nextResults = solveStarFromPois(pois, solverParams);
+    const finishedAtMs = getNowMs();
     setResults(nextResults);
     setSelectedResultIndex(0);
-    setDrawSummary(null);
+    const summary = makeDrawSummary({
+      sourceLabel: "自動計算",
+      startedAtMs,
+      startedAtIso,
+      finishedAtMs,
+      firstResultElapsedMs:
+        nextResults.length > 0 ? finishedAtMs - startedAtMs : null,
+      firstResultAtIso:
+        nextResults.length > 0 ? new Date().toISOString() : null,
+      firstResultSourceLabel: nextResults.length > 0 ? "自動計算" : null,
+      solveElapsedMs: finishedAtMs - startedAtMs,
+      renderElapsedMs: 0,
+      nextResults,
+      nextPois: pois,
+      nextCenter: center,
+      nextCenterLabel: centerName
+    });
+    addCalculationRecord(makeCalculationRecordFromSummary(summary));
     if (nextResults.length === 0) {
       setStatus(
         `目前 ${countPoisInCurrentRange(pois)} 個範圍內候選點不足以形成穩定的星形。`
       );
+      return;
     }
+    setStatus(formatDrawSummaryStatus(summary));
   }, [autoSolveKey, solverParams]);
 
   const runSolver = (nextPois = pois, nextCenter = center) => {
@@ -2369,7 +2880,6 @@ function App() {
     let solveElapsedMs = 0;
     setLoading(true);
     setError("");
-    setDrawSummary(null);
     setSelectedPoi(null);
     try {
       for (const progressStep of getRecalculateProgressSteps(searchStrategy)) {
@@ -2405,12 +2915,26 @@ function App() {
         nextCenter: center,
         nextCenterLabel: centerName
       });
-      setDrawSummary(summary);
+      addCalculationRecord(makeCalculationRecordFromSummary(summary));
       setStatus(formatDrawSummaryStatus(summary));
       completeProgress(formatDrawSummaryProgressLabel(summary));
     } catch (solveError) {
+      const finishedAtMs = getNowMs();
+      const message =
+        solveError instanceof Error ? solveError.message : "計算失敗。";
+      addCalculationRecord(
+        makeCalculationMessageRecord({
+          status: "failed",
+          sourceLabel: "重新計算",
+          title: "重新計算失敗",
+          message,
+          startedAtIso,
+          startedAtMs,
+          finishedAtMs
+        })
+      );
       resetProgress();
-      setError(solveError instanceof Error ? solveError.message : "計算失敗。");
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -2501,7 +3025,6 @@ function App() {
     setIsSearchDrawing(true);
     setLoading(true);
     setError("");
-    setDrawSummary(null);
     setSelectedPoi(null);
     let latestMergedPois = pois;
     let hasDrawnFirstSearchResult = false;
@@ -2607,18 +3130,44 @@ function App() {
         notes,
         categoryCount: selectedCategories.length
       });
-      setDrawSummary(summary);
+      addCalculationRecord(makeCalculationRecordFromSummary(summary));
       setStatus(formatDrawSummaryStatus(summary));
       completeProgress(formatDrawSummaryProgressLabel(summary));
     } catch (fetchError) {
       if (fetchError instanceof Error && fetchError.name === "AbortError") {
+        const finishedAtMs = getNowMs();
+        addCalculationRecord(
+          makeCalculationMessageRecord({
+            status: "cancelled",
+            sourceLabel: "搜尋繪製",
+            title: "搜尋繪製已取消",
+            message: "已取消搜索。",
+            startedAtIso,
+            startedAtMs,
+            finishedAtMs
+          })
+        );
         setStatus("已取消搜索。");
         completeProgress("已取消搜索");
         return;
       }
 
+      const finishedAtMs = getNowMs();
+      const message =
+        fetchError instanceof Error ? fetchError.message : "查詢失敗。";
+      addCalculationRecord(
+        makeCalculationMessageRecord({
+          status: "failed",
+          sourceLabel: "搜尋繪製",
+          title: "搜尋繪製失敗",
+          message,
+          startedAtIso,
+          startedAtMs,
+          finishedAtMs
+        })
+      );
       resetProgress();
-      setError(fetchError instanceof Error ? fetchError.message : "查詢失敗。");
+      setError(message);
     } finally {
       if (searchAbortControllerRef.current === searchController) {
         searchAbortControllerRef.current = null;
@@ -2909,45 +3458,27 @@ function App() {
                 </option>
               ))}
             </MarqueeSelect>
-            <MarqueeSelect
-              label="動畫"
-              value={magicAnimationIndex}
-              valueLabel={magicAnimationLabel}
-              onChange={(value) => handleMagicAnimationChange(Number(value))}
-              onTouchCancel={handleMagicAnimationTouchCancel}
-              onTouchEnd={handleMagicAnimationTouchEnd}
-              onTouchMove={handleMagicAnimationTouchMove}
-              onTouchStart={handleMagicAnimationTouchStart}
-              onWheel={handleMagicAnimationWheel}
-            >
-              {magicAnimationOptions.map((option) => (
-                <option value={option.index} key={option.index}>
-                  {option.label}
-                </option>
-              ))}
-            </MarqueeSelect>
           </div>
         </section>
 
-        <section className="mobile-primary-actions" aria-label="手機主要繪圖控制">
-          <div className="mode-row" role="group" aria-label="星形模式">
-            <button
-              className={starMode === 5 ? "selected" : ""}
-              type="button"
-              onClick={() => setStarMode(5)}
-              disabled={isSearchSettingsLocked}
-            >
-              五芒星
-            </button>
-            <button
-              className={starMode === 6 ? "selected" : ""}
-              type="button"
-              onClick={() => setStarMode(6)}
-              disabled={isSearchSettingsLocked}
-            >
-              六芒星
-            </button>
-          </div>
+        <section className="magic-draw-actions" aria-label="魔法陣圖案與搜索繪製">
+          <MarqueeSelect
+            label="圖案"
+            value={magicAnimationIndex}
+            valueLabel={magicAnimationLabel}
+            onChange={(value) => handleMagicAnimationChange(Number(value))}
+            onTouchCancel={handleMagicAnimationTouchCancel}
+            onTouchEnd={handleMagicAnimationTouchEnd}
+            onTouchMove={handleMagicAnimationTouchMove}
+            onTouchStart={handleMagicAnimationTouchStart}
+            onWheel={handleMagicAnimationWheel}
+          >
+            {magicAnimationOptions.map((option) => (
+              <option value={option.index} key={option.index}>
+                {option.label}
+              </option>
+            ))}
+          </MarqueeSelect>
           <button
             className="primary-button search-draw-button"
             type="button"
@@ -2975,10 +3506,7 @@ function App() {
         </nav>
 
         <section className={getMobileTabPanelClass("search")}>
-          <div className="panel-title">
-            <Crosshair aria-hidden="true" />
-            <h2>中心與範圍</h2>
-          </div>
+          {renderPanelTitle("search", "搜索中心", Crosshair)}
           <div className="search-row">
             <label className="input-wrap">
               <span>地標 / 地址 / 座標</span>
@@ -3034,31 +3562,7 @@ function App() {
         </section>
 
         <section className={getMobileTabPanelClass("categories")}>
-          <div className="panel-title panel-title--with-action">
-            <div className="panel-title-main">
-              <MapPin aria-hidden="true" />
-              <h2>目標類別</h2>
-            </div>
-            {!isMobileLayout && (
-              <button
-                className="panel-collapse-button"
-                type="button"
-                aria-controls="target-category-grid"
-                aria-expanded={isCategoryPanelExpanded}
-                aria-label={categoryToggleLabel}
-                title={categoryToggleLabel}
-                onClick={() =>
-                  setIsCategoryPanelExpanded((expanded) => !expanded)
-                }
-              >
-                {isCategoryPanelExpanded ? (
-                  <ChevronUp size={18} />
-                ) : (
-                  <ChevronDown size={18} />
-                )}
-              </button>
-            )}
-          </div>
+          {renderPanelTitle("categories", "目標類別", MapPin)}
           <div className="category-stack">
             <div
               className={`category-grid ${
@@ -3111,31 +3615,7 @@ function App() {
         </section>
 
         <section className={getMobileTabPanelClass("drawing", "panel solver-panel")}>
-          <div className="panel-title panel-title--with-action">
-            <div className="panel-title-main">
-              <Star aria-hidden="true" />
-              <h2>星形計算</h2>
-            </div>
-            {!isMobileLayout && (
-              <button
-                className="panel-collapse-button"
-                type="button"
-                aria-controls="solver-advanced-controls"
-                aria-expanded={isSolverPanelExpanded}
-                aria-label={solverToggleLabel}
-                title={solverToggleLabel}
-                onClick={() =>
-                  setIsSolverPanelExpanded((expanded) => !expanded)
-                }
-              >
-                {isSolverPanelExpanded ? (
-                  <ChevronUp size={18} />
-                ) : (
-                  <ChevronDown size={18} />
-                )}
-              </button>
-            )}
-          </div>
+          {renderPanelTitle("drawing", "繪圖設定", Star)}
           <div className="mode-row" role="group" aria-label="星形模式">
             <button
               className={starMode === 5 ? "selected" : ""}
@@ -3152,16 +3632,7 @@ function App() {
               六芒星
             </button>
           </div>
-          <div className="action-row">
-            <button
-              className="primary-button search-draw-button"
-              type="button"
-              onClick={() => void handleFetchAndSolve()}
-              disabled={loading && !isSearchDrawing}
-            >
-              <Play size={17} />
-              <span>{searchDrawButtonLabel}</span>
-            </button>
+          <div className="action-row action-row--single">
             <button
               className="secondary-button"
               type="button"
@@ -3194,19 +3665,32 @@ function App() {
               />
               <span>顯示扇形區塊</span>
             </label>
-            <label className="toggle-row">
-              <input
-                type="checkbox"
-                checked={searchStrategy === "honeycomb"}
-                disabled={isSearchSettingsLocked}
-                onChange={(event) =>
-                  setSearchStrategy(
-                    event.target.checked ? "honeycomb" : "angular"
-                  )
-                }
-              />
-              <span>蜂巢搜索（預設）</span>
-            </label>
+            <div className="toggle-row-pair">
+              <label className="toggle-row">
+                <input
+                  type="checkbox"
+                  checked={searchStrategy === "honeycomb"}
+                  disabled={isSearchSettingsLocked}
+                  onChange={(event) =>
+                    setSearchStrategy(
+                      event.target.checked ? "honeycomb" : "angular"
+                    )
+                  }
+                />
+                <span>蜂巢搜索（預設）</span>
+              </label>
+              <label className="toggle-row">
+                <input
+                  type="checkbox"
+                  checked={showHoneycomb}
+                  disabled={
+                    isSearchSettingsLocked || searchStrategy !== "honeycomb"
+                  }
+                  onChange={(event) => setShowHoneycomb(event.target.checked)}
+                />
+                <span>顯示蜂巢區塊</span>
+              </label>
+            </div>
             <div className="solver-controls">
               <label className="range-wrap">
                 <span>角度容許</span>
@@ -3271,20 +3755,55 @@ function App() {
                 </label>
               )}
             </div>
-            <div className="status-box" aria-live="polite">
-              {loading ? "處理中..." : status}
-            </div>
-            {error && <div className="error-box">{error}</div>}
           </div>
         </section>
 
-        {selectedPoi && (
-          <section className={getMobileTabPanelClass("results", "panel poi-panel")}>
-            <div className="panel-title">
-              <MapPin aria-hidden="true" />
-              <h2>選取地點</h2>
+        <section className={getMobileTabPanelClass("logs", "panel calculation-log-panel")}>
+          {renderPanelTitle("logs", "計算紀錄", Sparkles)}
+          <div className="status-box" aria-live="polite">
+            {loading ? "處理中..." : status}
+          </div>
+          {error && <div className="error-box">{error}</div>}
+          {calculationRecords.length === 0 ? (
+            <p className="muted">
+              尚無計算紀錄。執行搜索繪製、重新計算或自動計算後會保留每一次結果。
+            </p>
+          ) : (
+            <div className="calculation-record-list">
+              {calculationRecords.map((record) => (
+                <article
+                  className={`draw-summary calculation-record calculation-record--${record.status}`}
+                  key={record.id}
+                >
+                  <div className="draw-summary__head">
+                    <strong>{record.title}</strong>
+                    <span>{formatClockTime(record.finishedAtIso)}</span>
+                  </div>
+                  <p className="calculation-record__message">
+                    {record.message}
+                  </p>
+                  <div className="calculation-record__meta">
+                    <span>開始 {formatClockTime(record.startedAtIso)}</span>
+                    <span>結束 {formatClockTime(record.finishedAtIso)}</span>
+                    <span>耗時 {formatElapsedMs(record.totalElapsedMs)}</span>
+                  </div>
+                  {record.summary && (
+                    <DrawSummaryDetails summary={record.summary} />
+                  )}
+                </article>
+              ))}
             </div>
-            <div className="poi-detail">
+          )}
+        </section>
+
+        <section className={getMobileTabPanelClass("results", "panel results-panel")}>
+          {renderPanelTitle("results", "繪圖結果", Sparkles)}
+          {selectedPoi && (
+            <div className="poi-detail selected-poi-detail">
+              <div className="subsection-title">
+                <MapPin aria-hidden="true" />
+                <strong>選取地點</strong>
+              </div>
               <strong>{selectedPoi.name}</strong>
               <span>{selectedPoi.categoryLabel}</span>
               <span>
@@ -3307,131 +3826,6 @@ function App() {
                 <Star size={17} />
                 {isPoiFavorite(selectedPoi) ? "已收藏" : "加入我的最愛"}
               </button>
-            </div>
-          </section>
-        )}
-
-        <section className={getMobileTabPanelClass("results", "panel results-panel")}>
-          <div className="panel-title">
-            <Sparkles aria-hidden="true" />
-            <h2>星形結果</h2>
-          </div>
-          {drawSummary && (
-            <div className="draw-summary" aria-label="魔法陣繪製摘要">
-              <div className="draw-summary__head">
-                <strong>
-                  {drawSummary.resultCount > 0
-                    ? "最近一次魔法陣完成"
-                    : "最近一次計算完成"}
-                </strong>
-                <span>{formatClockTime(drawSummary.finishedAtIso)}</span>
-              </div>
-              <div className="draw-summary__metrics">
-                <ResultMetric
-                  label="首個魔法陣"
-                  value={formatElapsedMs(drawSummary.firstResultElapsedMs)}
-                />
-                <ResultMetric
-                  label="總耗時"
-                  value={formatElapsedMs(drawSummary.totalElapsedMs)}
-                />
-                <ResultMetric
-                  label="找到數量"
-                  value={`${drawSummary.resultCount} 組 / 上限 ${drawSummary.resultLimit}`}
-                />
-                <ResultMetric
-                  label="候選點"
-                  value={`${drawSummary.eligiblePoiCount} / ${drawSummary.totalPoiCount}`}
-                />
-                <ResultMetric
-                  label="搜尋下載"
-                  value={
-                    drawSummary.searchElapsedMs === null
-                      ? "不適用"
-                      : formatElapsedMs(drawSummary.searchElapsedMs)
-                  }
-                />
-                <ResultMetric
-                  label="最終計算"
-                  value={formatElapsedMs(drawSummary.solveElapsedMs)}
-                />
-                <ResultMetric
-                  label="預覽計算"
-                  value={
-                    drawSummary.previewSolveCount > 0
-                      ? `${drawSummary.previewSolveCount} 次 / ${formatElapsedMs(
-                          drawSummary.previewSolveElapsedMs
-                        )}`
-                      : "0 次"
-                  }
-                />
-                <ResultMetric
-                  label="地圖渲染"
-                  value={formatElapsedMs(drawSummary.renderElapsedMs)}
-                />
-                <ResultMetric
-                  label="動畫估計"
-                  value={formatElapsedMs(drawSummary.estimatedAnimationMs)}
-                />
-              </div>
-              <dl className="draw-summary__details">
-                <div>
-                  <dt>首個完成時間</dt>
-                  <dd>
-                    {formatClockTime(drawSummary.firstResultAtIso)}
-                    {drawSummary.firstResultSourceLabel
-                      ? ` · ${drawSummary.firstResultSourceLabel}`
-                      : ""}
-                  </dd>
-                </div>
-                <div>
-                  <dt>中心</dt>
-                  <dd>
-                    {drawSummary.centerLabel} · {drawSummary.centerCoordinate}
-                  </dd>
-                </div>
-                <div>
-                  <dt>範圍與模式</dt>
-                  <dd>
-                    {drawSummary.radiusRangeLabel} ·{" "}
-                    {getStarModeLabel(drawSummary.mode)} ·{" "}
-                    {getSearchStrategyLabel(drawSummary)}
-                  </dd>
-                </div>
-                <div>
-                  <dt>搜尋參數</dt>
-                  <dd>
-                    角度 ±{drawSummary.angleToleranceDeg.toFixed(0)}° · 每角{" "}
-                    {drawSummary.candidatesPerSlot} 點 · 旋轉步距{" "}
-                    {drawSummary.rotationStepDeg}°
-                  </dd>
-                </div>
-                <div>
-                  <dt>資料統計</dt>
-                  <dd>
-                    {drawSummary.fetchedPoiCount === null
-                      ? "使用目前點位"
-                      : `本次取得 ${drawSummary.fetchedPoiCount} 筆，新增 ${drawSummary.addedPoiCount} 筆`}
-                    {drawSummary.categoryCount === null
-                      ? ""
-                      : ` · 類別 ${drawSummary.categoryCount} 個`}
-                    {drawSummary.warningCount > 0
-                      ? ` · 提醒 ${drawSummary.warningCount} 則`
-                      : ""}
-                  </dd>
-                </div>
-                <div>
-                  <dt>動畫設定</dt>
-                  <dd>
-                    {drawSummary.animationLabel} · {drawSummary.magicSpeed}x
-                  </dd>
-                </div>
-              </dl>
-              {drawSummary.notes.length > 0 && (
-                <p className="draw-summary__notes">
-                  {drawSummary.notes.join(" ")}
-                </p>
-              )}
             </div>
           )}
           {results.length === 0 ? (
@@ -3510,10 +3904,7 @@ function App() {
         </section>
 
         <section className={getMobileTabPanelClass("favorites", "panel favorites-panel")}>
-          <div className="panel-title">
-            <Star aria-hidden="true" />
-            <h2>我的最愛</h2>
-          </div>
+          {renderPanelTitle("favorites", "我的最愛", Star)}
           {favorites.length === 0 ? (
             <p className="muted">收藏地點或星形後會顯示在這裡。</p>
           ) : (

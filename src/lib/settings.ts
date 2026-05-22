@@ -16,6 +16,7 @@ export interface AppSettings {
   searchStrategy: SearchStrategy;
   hexCellRadiusKm: number;
   showSectors: boolean;
+  showHoneycomb: boolean;
   selectedCategoryIds: string[];
   theme: ThemeMode;
   mapLayer: MapLayerId;
@@ -31,6 +32,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   searchStrategy: "honeycomb",
   hexCellRadiusKm: 0.5,
   showSectors: true,
+  showHoneycomb: false,
   selectedCategoryIds: DEFAULT_CATEGORY_IDS,
   theme: "light",
   mapLayer: "street"
@@ -137,6 +139,10 @@ export const normalizeSettings = (value: unknown): AppSettings => {
       typeof source.showSectors === "boolean"
         ? source.showSectors
         : DEFAULT_APP_SETTINGS.showSectors,
+    showHoneycomb:
+      typeof source.showHoneycomb === "boolean"
+        ? source.showHoneycomb
+        : DEFAULT_APP_SETTINGS.showHoneycomb,
     selectedCategoryIds: parseCategoryIds(source.selectedCategoryIds),
     theme: parseTheme(source.theme),
     mapLayer: parseMapLayer(source.mapLayer)

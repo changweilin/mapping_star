@@ -30,6 +30,7 @@ describe("settings helpers", () => {
     expect(DEFAULT_APP_SETTINGS.selectedCategoryIds).toEqual(["religion"]);
     expect(DEFAULT_APP_SETTINGS.searchStrategy).toBe("honeycomb");
     expect(DEFAULT_APP_SETTINGS.hexCellRadiusKm).toBe(0.5);
+    expect(DEFAULT_APP_SETTINGS.showHoneycomb).toBe(false);
   });
 
   it("clamps persisted radius range and solver controls to the current UI ranges", () => {
@@ -43,6 +44,7 @@ describe("settings helpers", () => {
       searchStrategy: "angular",
       hexCellRadiusKm: 99,
       showSectors: false,
+      showHoneycomb: true,
       selectedCategoryIds: ["religion", "missing", "station", "station"],
       theme: "dark",
       mapLayer: "satellite"
@@ -57,6 +59,7 @@ describe("settings helpers", () => {
     expect(settings.searchStrategy).toBe("angular");
     expect(settings.hexCellRadiusKm).toBe(10);
     expect(settings.showSectors).toBe(false);
+    expect(settings.showHoneycomb).toBe(true);
     expect(settings.selectedCategoryIds).toEqual(["religion", "station"]);
     expect(settings.theme).toBe("dark");
     expect(settings.mapLayer).toBe("satellite");
@@ -106,6 +109,7 @@ describe("settings helpers", () => {
       searchStrategy: "angular",
       hexCellRadiusKm: 7,
       showSectors: false,
+      showHoneycomb: true,
       selectedCategoryIds: ["religion", "station"],
       theme: "dark",
       mapLayer: "terrain"
@@ -117,6 +121,7 @@ describe("settings helpers", () => {
     expect(loaded.searchStrategy).toBe("angular");
     expect(loaded.hexCellRadiusKm).toBe(7);
     expect(loaded.showSectors).toBe(false);
+    expect(loaded.showHoneycomb).toBe(true);
     expect(loaded.selectedCategoryIds).toEqual(["religion", "station"]);
     expect(loaded.theme).toBe("dark");
     expect(loaded.mapLayer).toBe("terrain");
