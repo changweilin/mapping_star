@@ -33,6 +33,19 @@ export interface FetchPoisResult {
   warnings: string[];
 }
 
+export interface FetchPoisProgress {
+  category: PoiCategory;
+  completedCategories: number;
+  pois: Poi[];
+  totalCategories: number;
+  warnings: string[];
+}
+
+export interface FetchPoisOptions {
+  signal?: AbortSignal;
+  onCategoryResult?: (progress: FetchPoisProgress) => void;
+}
+
 interface FetchCategoryElementsResult {
   elements: OverpassElement[];
   warnings: string[];
@@ -177,17 +190,45 @@ export const parseOverpassElements = (
   return pois.sort((a, b) => a.distanceMeters - b.distanceMeters);
 };
 
-const sleep = (ms: number) =>
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
+const makeAbortError = () => {
+  const error = new Error("搜尋已取消");
+  error.name = "AbortError";
+  return error;
+};
+
+const throwIfAborted = (signal?: AbortSignal) => {
+  if (signal?.aborted) throw makeAbortError();
+};
+
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    throwIfAborted(signal);
+
+    const timeoutId = setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }, ms);
+    const abort = () => {
+      clearTimeout(timeoutId);
+      reject(makeAbortError());
+    };
+
+    signal?.addEventListener("abort", abort, { once: true });
   });
 
-const fetchOverpassFromEndpoint = async (endpoint: string, query: string) => {
+const fetchOverpassFromEndpoint = async (
+  endpoint: string,
+  query: string,
+  signal?: AbortSignal
+) => {
+  throwIfAborted(signal);
   const controller = new AbortController();
+  const abort = () => controller.abort();
   const timeoutId = setTimeout(
     () => controller.abort(),
     OVERPASS_REQUEST_TIMEOUT_MS
   );
+  signal?.addEventListener("abort", abort, { once: true });
 
   try {
     const response = await fetch(endpoint, {
@@ -205,6 +246,7 @@ const fetchOverpassFromEndpoint = async (endpoint: string, query: string) => {
 
     return (await response.json()) as OverpassResponse;
   } finally {
+    signal?.removeEventListener("abort", abort);
     clearTimeout(timeoutId);
   }
 };
@@ -246,14 +288,17 @@ const overpassFailureMessages = (error: unknown) =>
 
 const uniqueMessages = (messages: string[]) => [...new Set(messages)];
 
-const fetchOverpassElements = async (query: string) => {
+const fetchOverpassElements = async (query: string, signal?: AbortSignal) => {
   const failures: string[] = [];
 
   for (const endpoint of OVERPASS_ENDPOINTS) {
+    throwIfAborted(signal);
+
     try {
-      const data = await fetchOverpassFromEndpoint(endpoint, query);
+      const data = await fetchOverpassFromEndpoint(endpoint, query, signal);
       return data.elements ?? [];
     } catch (error) {
+      throwIfAborted(signal);
       failures.push(formatOverpassError(error));
 
       if (!isRetryableOverpassError(error)) {
@@ -269,7 +314,8 @@ const fetchOverpassElementsForFilters = (
   center: LatLng,
   radiusMeters: number,
   filters: string[],
-  innerRadiusMeters = 0
+  innerRadiusMeters = 0,
+  signal?: AbortSignal
 ) =>
   fetchOverpassElements(
     buildOverpassQueryForFilters(
@@ -277,14 +323,16 @@ const fetchOverpassElementsForFilters = (
       radiusMeters,
       filters,
       innerRadiusMeters
-    )
+    ),
+    signal
   );
 
 const fetchCategoryElements = async (
   center: LatLng,
   radiusMeters: number,
   innerRadiusMeters: number,
-  category: PoiCategory
+  category: PoiCategory,
+  signal?: AbortSignal
 ): Promise<FetchCategoryElementsResult> => {
   try {
     return {
@@ -292,7 +340,8 @@ const fetchCategoryElements = async (
         center,
         radiusMeters,
         category.overpassFilters,
-        innerRadiusMeters
+        innerRadiusMeters,
+        signal
       ),
       warnings: []
     };
@@ -312,7 +361,8 @@ const fetchCategoryElements = async (
             center,
             radiusMeters,
             [filter],
-            innerRadiusMeters
+            innerRadiusMeters,
+            signal
           ))
         );
       } catch (filterError) {
@@ -320,7 +370,7 @@ const fetchCategoryElements = async (
         failures.push(...overpassFailureMessages(filterError));
       }
 
-      await sleep(CATEGORY_QUERY_PAUSE_MS);
+      await sleep(CATEGORY_QUERY_PAUSE_MS, signal);
     }
 
     if (failedFilters === category.overpassFilters.length) {
@@ -369,32 +419,49 @@ export const fetchPoisDetailed = async (
   center: LatLng,
   radiusMeters: number,
   categories: PoiCategory[],
-  innerRadiusMeters = 0
+  innerRadiusMeters = 0,
+  options: FetchPoisOptions = {}
 ): Promise<FetchPoisResult> => {
   if (categories.length === 0) {
     throw new Error("請至少選擇一種目標類別。");
   }
 
+  const { onCategoryResult, signal } = options;
   const elements: OverpassElement[] = [];
   const failures: string[] = [];
   const partialWarnings: string[] = [];
 
-  for (const category of categories) {
+  for (const [index, category] of categories.entries()) {
+    throwIfAborted(signal);
+
     try {
       const result = await fetchCategoryElements(
         center,
         radiusMeters,
         innerRadiusMeters,
-        category
+        category,
+        signal
       );
       elements.push(...result.elements);
       partialWarnings.push(...result.warnings);
+      onCategoryResult?.({
+        category,
+        completedCategories: index + 1,
+        pois: filterPoisByRadiusRange(
+          parseOverpassElements(result.elements, center, [category]),
+          innerRadiusMeters,
+          radiusMeters
+        ),
+        totalCategories: categories.length,
+        warnings: result.warnings
+      });
     } catch (error) {
+      throwIfAborted(signal);
       failures.push(formatCategoryFailure(category, error));
     }
 
     if (categories.length > 1) {
-      await sleep(CATEGORY_QUERY_PAUSE_MS);
+      await sleep(CATEGORY_QUERY_PAUSE_MS, signal);
     }
   }
 

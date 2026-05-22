@@ -74,6 +74,12 @@ import type {
 } from "./types";
 
 type MagicPlaybackMode = "single" | "continuous" | "loop-all" | "loop-one";
+type MobileSettingsTab =
+  | "search"
+  | "categories"
+  | "drawing"
+  | "results"
+  | "favorites";
 
 const DEFAULT_CENTER: LatLng = { lat: 25.033964, lng: 121.564468 };
 const MAX_RENDERED_POIS = 350;
@@ -92,6 +98,14 @@ const MAGIC_PLAYBACK_MODES = [
   { id: "loop-one", label: "單曲循環播放" }
 ] satisfies Array<{ id: MagicPlaybackMode; label: string }>;
 
+const MOBILE_SETTINGS_TABS = [
+  { id: "search", label: "搜索中心" },
+  { id: "categories", label: "目標類別" },
+  { id: "drawing", label: "繪圖設定" },
+  { id: "results", label: "繪圖結果" },
+  { id: "favorites", label: "我的最愛" }
+] satisfies Array<{ id: MobileSettingsTab; label: string }>;
+
 type RadiusHandle = "inner" | "outer";
 type MagicPlayback = "playing" | "paused" | "ended";
 type MagicPlaybackDirection = "forward" | "reverse";
@@ -102,8 +116,18 @@ type MagicSelectTouchState = {
   isLongPressActive: boolean;
   timerId: number | null;
 };
+type MobileSettingsSwipeState = {
+  isSwipeGesture: boolean;
+  startX: number;
+  startY: number;
+};
 type MagicSelectTouchRef = {
   current: MagicSelectTouchState | null;
+};
+type MagicSelectScrollLockState = {
+  bodyOverflow: string;
+  bodyTouchAction: string;
+  htmlOverflow: string;
 };
 type CalculationProgress = {
   label: string;
@@ -649,11 +673,13 @@ const ResultMetric = ({
 const RadiusRangeControl = ({
   innerRadiusKm,
   outerRadiusKm,
+  disabled = false,
   onInnerChange,
   onOuterChange
 }: {
   innerRadiusKm: number;
   outerRadiusKm: number;
+  disabled?: boolean;
   onInnerChange: (value: number) => void;
   onOuterChange: (value: number) => void;
 }) => {
@@ -692,6 +718,7 @@ const RadiusRangeControl = ({
   };
 
   const handleTrackPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (disabled) return;
     const value = valueFromPointer(event.clientX);
     const handle =
       Math.abs(value - innerRadiusKm) <= Math.abs(value - outerRadiusKm)
@@ -704,6 +731,7 @@ const RadiusRangeControl = ({
     handle: RadiusHandle,
     event: PointerEvent<HTMLSpanElement>
   ) => {
+    if (disabled) return;
     event.preventDefault();
     event.stopPropagation();
     setDragging(handle);
@@ -715,6 +743,7 @@ const RadiusRangeControl = ({
     handle: RadiusHandle,
     event: PointerEvent<HTMLSpanElement>
   ) => {
+    if (disabled) return;
     if (dragging === handle) updateFromPointer(handle, event);
   };
 
@@ -727,6 +756,7 @@ const RadiusRangeControl = ({
     handle: RadiusHandle,
     event: KeyboardEvent<HTMLSpanElement>
   ) => {
+    if (disabled) return;
     const currentValue = handle === "inner" ? innerRadiusKm : outerRadiusKm;
     const step = event.shiftKey ? 5 : 1;
     const keyActions: Record<string, number> = {
@@ -745,7 +775,7 @@ const RadiusRangeControl = ({
 
   return (
     <div
-      className="dual-range"
+      className={disabled ? "dual-range dual-range--disabled" : "dual-range"}
       ref={trackRef}
       onPointerDown={handleTrackPointerDown}
     >
@@ -764,7 +794,7 @@ const RadiusRangeControl = ({
         aria-valuenow={innerRadiusKm}
         className="dual-range__handle"
         role="slider"
-        tabIndex={0}
+        tabIndex={disabled ? -1 : 0}
         style={{ left: `${innerPercent}%` }}
         onKeyDown={(event) => handleKeyDown("inner", event)}
         onPointerDown={(event) => handlePointerDown("inner", event)}
@@ -778,7 +808,7 @@ const RadiusRangeControl = ({
         aria-valuenow={outerRadiusKm}
         className="dual-range__handle"
         role="slider"
-        tabIndex={0}
+        tabIndex={disabled ? -1 : 0}
         style={{ left: `${outerPercent}%` }}
         onKeyDown={(event) => handleKeyDown("outer", event)}
         onPointerDown={(event) => handlePointerDown("outer", event)}
@@ -790,6 +820,10 @@ const RadiusRangeControl = ({
 };
 
 function App() {
+  const appShellRef = useRef<HTMLElement | null>(null);
+  const appHeaderRef = useRef<HTMLElement | null>(null);
+  const sidebarRef = useRef<HTMLElement | null>(null);
+  const magicPlayerRef = useRef<HTMLElement | null>(null);
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
@@ -879,9 +913,25 @@ function App() {
   const magicPlaybackModeTouchRef = useRef<MagicSelectTouchState | null>(null);
   const magicAnimationTouchRef = useRef<MagicSelectTouchState | null>(null);
   const magicSpeedTouchRef = useRef<MagicSelectTouchState | null>(null);
+  const magicSelectScrollLockRef =
+    useRef<MagicSelectScrollLockState | null>(null);
+  const mobileSplitDraggingRef = useRef(false);
+  const mobileSettingsSwipeRef = useRef<MobileSettingsSwipeState | null>(null);
+  const searchAbortControllerRef = useRef<AbortController | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isSearchDrawing, setIsSearchDrawing] = useState(false);
   const [calculationProgress, setCalculationProgress] =
     useState<CalculationProgress | null>(null);
+  const [mobileMapSplitPercent, setMobileMapSplitPercent] = useState(50);
+  const [mobileSettingsSwipeOffsetPx, setMobileSettingsSwipeOffsetPx] =
+    useState(0);
+  const [activeMobileSettingsTab, setActiveMobileSettingsTab] =
+    useState<MobileSettingsTab>("search");
+  const [isMobileLayout, setIsMobileLayout] = useState(() =>
+    typeof window === "undefined"
+      ? false
+      : window.matchMedia("(max-width: 900px)").matches
+  );
   const [status, setStatus] = useState(
     initialLastStar
       ? `已載入上次暫存的${initialLastStar.mode === 5 ? "五芒星" : "六芒星"}魔法陣。`
@@ -915,6 +965,26 @@ function App() {
   const magicAnimationLabel =
     magicAnimationOptions.find((option) => option.index === magicAnimationIndex)
       ?.label ?? magicAnimationOptions[0]?.label ?? "動畫";
+  const currentMapLayerOption =
+    MAP_LAYER_OPTIONS.find((option) => option.id === mapLayer) ??
+    MAP_LAYER_OPTIONS[0];
+  const CurrentMapLayerIcon = currentMapLayerOption.Icon;
+  const searchDrawButtonLabel = isSearchDrawing ? "取消搜索" : "搜索繪製";
+  const isSearchSettingsLocked = isSearchDrawing;
+  const areCategoryOptionsExpanded =
+    isMobileLayout || isCategoryPanelExpanded;
+  const isSolverAdvancedExpanded = isMobileLayout || isSolverPanelExpanded;
+  const appShellStyle = {
+    "--mobile-map-split": `${mobileMapSplitPercent}%`,
+    "--mobile-tab-swipe-offset": `${mobileSettingsSwipeOffsetPx}px`
+  } as CSSProperties;
+  const getMobileTabPanelClass = (
+    tab: MobileSettingsTab,
+    className = "panel"
+  ) =>
+    `${className} mobile-tab-panel ${
+      activeMobileSettingsTab === tab ? "mobile-tab-panel--active" : ""
+    }`;
   const innerRadiusMeters = innerRadiusKm * 1000;
   const outerRadiusMeters = outerRadiusKm * 1000;
   const visiblePois = useMemo(
@@ -986,6 +1056,177 @@ function App() {
   };
   const handleOuterRadiusChange = (value: number) => {
     setOuterRadiusKm(Math.min(30, Math.max(value, innerRadiusKm + 1)));
+  };
+  const handleMapLayerCycle = () => {
+    const currentIndex = Math.max(
+      0,
+      MAP_LAYER_OPTIONS.findIndex((option) => option.id === mapLayer)
+    );
+    setMapLayer(
+      MAP_LAYER_OPTIONS[(currentIndex + 1) % MAP_LAYER_OPTIONS.length].id
+    );
+  };
+  const handleCancelSearch = () => {
+    if (!isSearchDrawing) return;
+    searchAbortControllerRef.current?.abort();
+    setProgressStep(100, "正在取消搜索...");
+  };
+  const getMobileSplitBounds = () => {
+    const shell = appShellRef.current;
+    if (!shell) return { min: 12, max: 88 };
+
+    const shellRect = shell.getBoundingClientRect();
+    const shellHeight = shellRect.height;
+    if (shellHeight <= 0) return { min: 12, max: 88 };
+
+    const headerHeight =
+      appHeaderRef.current?.getBoundingClientRect().height ?? 56;
+    const playerHeight =
+      magicPlayerRef.current?.getBoundingClientRect().height ?? 92;
+    const splitterHeight =
+      shell.querySelector(".mobile-splitter")?.getBoundingClientRect().height ??
+      12;
+    const sidebarStyle = sidebarRef.current
+      ? window.getComputedStyle(sidebarRef.current)
+      : null;
+    const sidebarVerticalPadding =
+      Number.parseFloat(sidebarStyle?.paddingTop ?? "0") +
+      Number.parseFloat(sidebarStyle?.paddingBottom ?? "0");
+
+    const minMapHeight = headerHeight;
+    const maxMapHeight =
+      shellHeight - splitterHeight - playerHeight - sidebarVerticalPadding;
+    const min = (minMapHeight / shellHeight) * 100;
+    const max = (Math.max(minMapHeight, maxMapHeight) / shellHeight) * 100;
+
+    return {
+      min: Math.max(8, Math.min(90, min)),
+      max: Math.max(min, Math.min(96, max))
+    };
+  };
+  const clampMobileSplitPercent = (value: number) => {
+    const bounds = getMobileSplitBounds();
+    return Math.min(bounds.max, Math.max(bounds.min, value));
+  };
+  const updateMobileSplitFromPointer = (clientY: number) => {
+    const shell = appShellRef.current;
+    if (!shell) return;
+
+    const rect = shell.getBoundingClientRect();
+    if (rect.height <= 0) return;
+
+    const nextPercent = ((clientY - rect.top) / rect.height) * 100;
+    setMobileMapSplitPercent(clampMobileSplitPercent(nextPercent));
+  };
+  const handleMobileSplitterPointerDown = (
+    event: PointerEvent<HTMLDivElement>
+  ) => {
+    event.preventDefault();
+    mobileSplitDraggingRef.current = true;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    updateMobileSplitFromPointer(event.clientY);
+  };
+  const handleMobileSplitterPointerMove = (
+    event: PointerEvent<HTMLDivElement>
+  ) => {
+    if (!mobileSplitDraggingRef.current) return;
+    event.preventDefault();
+    updateMobileSplitFromPointer(event.clientY);
+  };
+  const handleMobileSplitterPointerUp = (
+    event: PointerEvent<HTMLDivElement>
+  ) => {
+    mobileSplitDraggingRef.current = false;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+  const handleMobileSplitterKeyDown = (
+    event: KeyboardEvent<HTMLDivElement>
+  ) => {
+    const bounds = getMobileSplitBounds();
+    const keyActions: Record<string, number> = {
+      ArrowUp: mobileMapSplitPercent - 5,
+      ArrowLeft: mobileMapSplitPercent - 5,
+      ArrowDown: mobileMapSplitPercent + 5,
+      ArrowRight: mobileMapSplitPercent + 5,
+      Home: bounds.min,
+      End: bounds.max,
+      Enter: 50,
+      " ": 50
+    };
+
+    if (!(event.key in keyActions)) return;
+    event.preventDefault();
+    setMobileMapSplitPercent(clampMobileSplitPercent(keyActions[event.key]));
+  };
+  const switchMobileSettingsTab = (direction: 1 | -1) => {
+    const currentIndex = MOBILE_SETTINGS_TABS.findIndex(
+      (tab) => tab.id === activeMobileSettingsTab
+    );
+    const nextIndex =
+      (Math.max(0, currentIndex) + direction + MOBILE_SETTINGS_TABS.length) %
+      MOBILE_SETTINGS_TABS.length;
+
+    setActiveMobileSettingsTab(MOBILE_SETTINGS_TABS[nextIndex].id);
+  };
+  const handleMobileSettingsTouchStart = (
+    event: TouchEvent<HTMLElement>
+  ) => {
+    const target = event.target;
+    if (
+      target instanceof Element &&
+      target.closest(
+        "button, input, select, a, .dual-range, .range-wrap, .category-option"
+      )
+    ) {
+      mobileSettingsSwipeRef.current = null;
+      return;
+    }
+
+    const touch = event.touches[0];
+    if (!touch) return;
+    mobileSettingsSwipeRef.current = {
+      isSwipeGesture: false,
+      startX: touch.clientX,
+      startY: touch.clientY
+    };
+  };
+  const handleMobileSettingsTouchMove = (
+    event: TouchEvent<HTMLElement>
+  ) => {
+    const swipeState = mobileSettingsSwipeRef.current;
+    const touch = event.touches[0];
+    if (!swipeState || !touch) return;
+
+    const deltaX = touch.clientX - swipeState.startX;
+    const deltaY = touch.clientY - swipeState.startY;
+    const isHorizontalIntent =
+      Math.abs(deltaX) >= 16 && Math.abs(deltaX) > Math.abs(deltaY) * 1.15;
+    if (!swipeState.isSwipeGesture && !isHorizontalIntent) return;
+
+    swipeState.isSwipeGesture = true;
+    event.preventDefault();
+    setMobileSettingsSwipeOffsetPx(
+      Math.max(-84, Math.min(84, deltaX * 0.42))
+    );
+  };
+  const handleMobileSettingsTouchEnd = (
+    event: TouchEvent<HTMLElement>
+  ) => {
+    const swipeState = mobileSettingsSwipeRef.current;
+    const touch = event.changedTouches[0];
+    mobileSettingsSwipeRef.current = null;
+    if (!swipeState || !touch) return;
+
+    const deltaX = touch.clientX - swipeState.startX;
+    const deltaY = touch.clientY - swipeState.startY;
+    const isHorizontalSwipe =
+      Math.abs(deltaX) >= 58 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25;
+    setMobileSettingsSwipeOffsetPx(0);
+    if (!isHorizontalSwipe) return;
+
+    switchMobileSettingsTab(deltaX < 0 ? 1 : -1);
   };
   const countPoisInCurrentRange = (items: Poi[]) =>
     items.filter(
@@ -1226,10 +1467,44 @@ function App() {
     event.preventDefault();
     event.stopPropagation();
   };
+  const lockMagicSelectPageScroll = () => {
+    if (
+      typeof document === "undefined" ||
+      magicSelectScrollLockRef.current !== null
+    ) {
+      return;
+    }
+
+    magicSelectScrollLockRef.current = {
+      bodyOverflow: document.body.style.overflow,
+      bodyTouchAction: document.body.style.touchAction,
+      htmlOverflow: document.documentElement.style.overflow
+    };
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
+  };
+  const unlockMagicSelectPageScroll = () => {
+    if (
+      typeof document === "undefined" ||
+      magicSelectScrollLockRef.current === null
+    ) {
+      return;
+    }
+
+    const previousState = magicSelectScrollLockRef.current;
+    document.documentElement.style.overflow = previousState.htmlOverflow;
+    document.body.style.overflow = previousState.bodyOverflow;
+    document.body.style.touchAction = previousState.bodyTouchAction;
+    magicSelectScrollLockRef.current = null;
+  };
   const clearMagicSelectTouch = (touchRef: MagicSelectTouchRef) => {
     const state = touchRef.current;
     if (state && state.timerId !== null) {
       window.clearTimeout(state.timerId);
+    }
+    if (state?.isLongPressActive) {
+      unlockMagicSelectPageScroll();
     }
     touchRef.current = null;
   };
@@ -1253,6 +1528,7 @@ function App() {
       touchState.isLongPressActive = true;
       touchState.lastStepY = touchState.startY;
       touchState.timerId = null;
+      lockMagicSelectPageScroll();
     }, MAGIC_SELECT_LONG_PRESS_MS);
 
     touchRef.current = touchState;
@@ -1358,6 +1634,35 @@ function App() {
   const handleMagicSpeedTouchCancel = (event: TouchEvent<HTMLElement>) => {
     endMagicSelectTouch(event, magicSpeedTouchRef);
   };
+
+  useEffect(() => () => unlockMagicSelectPageScroll(), []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const mediaQuery = window.matchMedia("(max-width: 900px)");
+    const updateMobileLayout = () => setIsMobileLayout(mediaQuery.matches);
+    updateMobileLayout();
+    mediaQuery.addEventListener("change", updateMobileLayout);
+
+    return () => {
+      mediaQuery.removeEventListener("change", updateMobileLayout);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !isMobileLayout) return undefined;
+
+    const clampCurrentSplit = () => {
+      setMobileMapSplitPercent((current) => clampMobileSplitPercent(current));
+    };
+
+    clampCurrentSplit();
+    window.addEventListener("resize", clampCurrentSplit);
+
+    return () => window.removeEventListener("resize", clampCurrentSplit);
+  }, [isMobileLayout]);
+
   const fitMapToResult = (result: StarResult) => {
     mapRef.current?.fitBounds(makeStarBounds(result).pad(0.08), {
       animate: true,
@@ -1747,6 +2052,30 @@ function App() {
   }, [selectedResult?.id]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const frameId = window.requestAnimationFrame(() => {
+      mapRef.current?.invalidateSize(false);
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [mobileMapSplitPercent]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const frameId = window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(
+          `[data-mobile-settings-tab="${activeMobileSettingsTab}"]`
+        )
+        ?.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "center"
+        });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [activeMobileSettingsTab]);
+
+  useEffect(() => {
     if (skipNextAutoSolveRef.current) {
       const shouldSkip = skipNextAutoSolveRef.current === autoSolveKey;
       skipNextAutoSolveRef.current = null;
@@ -1877,9 +2206,18 @@ function App() {
   };
 
   const handleFetchAndSolve = async () => {
+    if (isSearchDrawing) {
+      handleCancelSearch();
+      return;
+    }
+
+    const searchController = new AbortController();
+    searchAbortControllerRef.current = searchController;
+    setIsSearchDrawing(true);
     setLoading(true);
     setError("");
     setSelectedPoi(null);
+    let latestMergedPois = pois;
     try {
       setProgressStep(8, "解析中心地點");
       const searchCenter = await resolveSearchCenter(false);
@@ -1891,9 +2229,20 @@ function App() {
         searchCenter.center,
         outerRadiusMeters,
         selectedCategories,
-        innerRadiusMeters
+        innerRadiusMeters,
+        {
+          signal: searchController.signal,
+          onCategoryResult: (progress) => {
+            latestMergedPois = mergePois(latestMergedPois, progress.pois);
+            setPois(latestMergedPois);
+            setProgressStep(
+              34 + (progress.completedCategories / progress.totalCategories) * 32,
+              `${progress.category.label} 已搜索 ${progress.pois.length} 筆`
+            );
+          }
+        }
       );
-      const mergedPois = mergePois(pois, nextPois);
+      const mergedPois = mergePois(latestMergedPois, nextPois);
       const addedPoiCount = mergedPois.length - pois.length;
       setPois(mergedPois);
       setProgressStep(68, `分析 ${mergedPois.length} 個候選點`);
@@ -1927,9 +2276,19 @@ function App() {
         nextResults.length > 0 ? "魔法陣完成" : "計算完成，尚無可用星形"
       );
     } catch (fetchError) {
+      if (fetchError instanceof Error && fetchError.name === "AbortError") {
+        setStatus("已取消搜索。");
+        completeProgress("已取消搜索");
+        return;
+      }
+
       resetProgress();
       setError(fetchError instanceof Error ? fetchError.message : "查詢失敗。");
     } finally {
+      if (searchAbortControllerRef.current === searchController) {
+        searchAbortControllerRef.current = null;
+      }
+      setIsSearchDrawing(false);
       setLoading(false);
     }
   };
@@ -2110,9 +2469,24 @@ function App() {
     magicDirection === "forward";
 
   return (
-    <main className="app-shell">
-      <aside className="sidebar" aria-label="地圖控制">
-        <section className="magic-player" aria-label="魔法陣播放器">
+    <main className="app-shell" ref={appShellRef} style={appShellStyle}>
+      <aside
+        className="sidebar"
+        ref={sidebarRef}
+        aria-label="地圖控制"
+        onTouchCancel={() => {
+          mobileSettingsSwipeRef.current = null;
+          setMobileSettingsSwipeOffsetPx(0);
+        }}
+        onTouchEnd={handleMobileSettingsTouchEnd}
+        onTouchMove={handleMobileSettingsTouchMove}
+        onTouchStart={handleMobileSettingsTouchStart}
+      >
+        <section
+          className="magic-player"
+          ref={magicPlayerRef}
+          aria-label="魔法陣播放器"
+        >
           <div
             className="magic-player-controls"
             role="group"
@@ -2220,7 +2594,52 @@ function App() {
           </div>
         </section>
 
-        <section className="panel">
+        <section className="mobile-primary-actions" aria-label="手機主要繪圖控制">
+          <div className="mode-row" role="group" aria-label="星形模式">
+            <button
+              className={starMode === 5 ? "selected" : ""}
+              type="button"
+              onClick={() => setStarMode(5)}
+              disabled={isSearchSettingsLocked}
+            >
+              五芒星
+            </button>
+            <button
+              className={starMode === 6 ? "selected" : ""}
+              type="button"
+              onClick={() => setStarMode(6)}
+              disabled={isSearchSettingsLocked}
+            >
+              六芒星
+            </button>
+          </div>
+          <button
+            className="primary-button search-draw-button"
+            type="button"
+            onClick={() => void handleFetchAndSolve()}
+            disabled={loading && !isSearchDrawing}
+          >
+            <Play size={17} />
+            <span>{searchDrawButtonLabel}</span>
+          </button>
+        </section>
+
+        <nav className="mobile-settings-tabs" aria-label="手機設定頁籤">
+          {MOBILE_SETTINGS_TABS.map((tab) => (
+            <button
+              aria-pressed={activeMobileSettingsTab === tab.id}
+              className={activeMobileSettingsTab === tab.id ? "active" : ""}
+              data-mobile-settings-tab={tab.id}
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveMobileSettingsTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+
+        <section className={getMobileTabPanelClass("search")}>
           <div className="panel-title">
             <Crosshair aria-hidden="true" />
             <h2>中心與範圍</h2>
@@ -2230,6 +2649,7 @@ function App() {
               <span>地標 / 地址 / 座標</span>
               <input
                 value={searchText}
+                disabled={isSearchSettingsLocked}
                 onChange={(event) => setSearchText(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") void handleSearchPlace();
@@ -2242,16 +2662,16 @@ function App() {
               type="button"
               title="搜尋地點"
               onClick={() => void handleSearchPlace()}
-              disabled={loading}
+              disabled={loading || isSearchSettingsLocked}
             >
               <Search size={18} />
             </button>
             <button
-              className="icon-button"
+              className="icon-button search-locate-button"
               type="button"
               title="使用目前位置"
               onClick={handleLocate}
-              disabled={loading}
+              disabled={loading || isSearchSettingsLocked}
             >
               <LocateFixed size={18} />
             </button>
@@ -2264,6 +2684,7 @@ function App() {
             <RadiusRangeControl
               innerRadiusKm={innerRadiusKm}
               outerRadiusKm={outerRadiusKm}
+              disabled={isSearchSettingsLocked}
               onInnerChange={handleInnerRadiusChange}
               onOuterChange={handleOuterRadiusChange}
             />
@@ -2277,34 +2698,36 @@ function App() {
           </p>
         </section>
 
-        <section className="panel">
+        <section className={getMobileTabPanelClass("categories")}>
           <div className="panel-title panel-title--with-action">
             <div className="panel-title-main">
               <MapPin aria-hidden="true" />
               <h2>目標類別</h2>
             </div>
-            <button
-              className="panel-collapse-button"
-              type="button"
-              aria-controls="target-category-grid"
-              aria-expanded={isCategoryPanelExpanded}
-              aria-label={categoryToggleLabel}
-              title={categoryToggleLabel}
-              onClick={() =>
-                setIsCategoryPanelExpanded((expanded) => !expanded)
-              }
-            >
-              {isCategoryPanelExpanded ? (
-                <ChevronUp size={18} />
-              ) : (
-                <ChevronDown size={18} />
-              )}
-            </button>
+            {!isMobileLayout && (
+              <button
+                className="panel-collapse-button"
+                type="button"
+                aria-controls="target-category-grid"
+                aria-expanded={isCategoryPanelExpanded}
+                aria-label={categoryToggleLabel}
+                title={categoryToggleLabel}
+                onClick={() =>
+                  setIsCategoryPanelExpanded((expanded) => !expanded)
+                }
+              >
+                {isCategoryPanelExpanded ? (
+                  <ChevronUp size={18} />
+                ) : (
+                  <ChevronDown size={18} />
+                )}
+              </button>
+            )}
           </div>
           <div className="category-stack">
             <div
               className={`category-grid ${
-                isCategoryPanelExpanded ? "category-grid--expanded" : ""
+                areCategoryOptionsExpanded ? "category-grid--expanded" : ""
               }`}
               id="target-category-grid"
             >
@@ -2326,7 +2749,7 @@ function App() {
                 </label>
               ))}
             </div>
-            {!isCategoryPanelExpanded && (
+            {!areCategoryOptionsExpanded && (
               <div
                 aria-hidden="true"
                 className="category-fade-preview fade-preview"
@@ -2352,29 +2775,31 @@ function App() {
           </div>
         </section>
 
-        <section className="panel">
+        <section className={getMobileTabPanelClass("drawing", "panel solver-panel")}>
           <div className="panel-title panel-title--with-action">
             <div className="panel-title-main">
               <Star aria-hidden="true" />
               <h2>星形計算</h2>
             </div>
-            <button
-              className="panel-collapse-button"
-              type="button"
-              aria-controls="solver-advanced-controls"
-              aria-expanded={isSolverPanelExpanded}
-              aria-label={solverToggleLabel}
-              title={solverToggleLabel}
-              onClick={() =>
-                setIsSolverPanelExpanded((expanded) => !expanded)
-              }
-            >
-              {isSolverPanelExpanded ? (
-                <ChevronUp size={18} />
-              ) : (
-                <ChevronDown size={18} />
-              )}
-            </button>
+            {!isMobileLayout && (
+              <button
+                className="panel-collapse-button"
+                type="button"
+                aria-controls="solver-advanced-controls"
+                aria-expanded={isSolverPanelExpanded}
+                aria-label={solverToggleLabel}
+                title={solverToggleLabel}
+                onClick={() =>
+                  setIsSolverPanelExpanded((expanded) => !expanded)
+                }
+              >
+                {isSolverPanelExpanded ? (
+                  <ChevronUp size={18} />
+                ) : (
+                  <ChevronDown size={18} />
+                )}
+              </button>
+            )}
           </div>
           <div className="mode-row" role="group" aria-label="星形模式">
             <button
@@ -2394,13 +2819,13 @@ function App() {
           </div>
           <div className="action-row">
             <button
-              className="primary-button"
+              className="primary-button search-draw-button"
               type="button"
               onClick={() => void handleFetchAndSolve()}
-              disabled={loading}
+              disabled={loading && !isSearchDrawing}
             >
               <Play size={17} />
-              搜尋並繪製
+              <span>{searchDrawButtonLabel}</span>
             </button>
             <button
               className="secondary-button"
@@ -2412,7 +2837,7 @@ function App() {
               重新計算
             </button>
           </div>
-          {!isSolverPanelExpanded && (
+          {!isSolverAdvancedExpanded && (
             <div aria-hidden="true" className="fade-preview solver-fade-preview">
               <div className="toggle-row solver-fade-preview__row">
                 <span className="solver-fade-preview__checkbox" />
@@ -2422,13 +2847,14 @@ function App() {
           )}
           <div
             className="solver-advanced"
-            hidden={!isSolverPanelExpanded}
+            hidden={!isSolverAdvancedExpanded}
             id="solver-advanced-controls"
           >
             <label className="toggle-row">
               <input
                 type="checkbox"
                 checked={showSectors}
+                disabled={isSearchSettingsLocked}
                 onChange={(event) => setShowSectors(event.target.checked)}
               />
               <span>顯示扇形區塊</span>
@@ -2437,6 +2863,7 @@ function App() {
               <input
                 type="checkbox"
                 checked={searchStrategy === "honeycomb"}
+                disabled={isSearchSettingsLocked}
                 onChange={(event) =>
                   setSearchStrategy(
                     event.target.checked ? "honeycomb" : "angular"
@@ -2450,6 +2877,7 @@ function App() {
                 <span>角度容許</span>
                 <input
                   type="range"
+                  disabled={isSearchSettingsLocked}
                   min="6"
                   max={maxAngleToleranceDeg}
                   step="1"
@@ -2464,6 +2892,7 @@ function App() {
                 <span>每角候選</span>
                 <input
                   type="range"
+                  disabled={isSearchSettingsLocked}
                   min="1"
                   max="12"
                   step="1"
@@ -2478,6 +2907,7 @@ function App() {
                 <span>旋轉精度</span>
                 <input
                   type="range"
+                  disabled={isSearchSettingsLocked}
                   min="1"
                   max="8"
                   step="1"
@@ -2493,50 +2923,28 @@ function App() {
                   <span>蜂巢半徑</span>
                   <input
                     type="range"
-                    min="1"
+                    disabled={isSearchSettingsLocked}
+                    min="0.1"
                     max="10"
-                    step="1"
+                    step="0.1"
                     value={hexCellRadiusKm}
                     onChange={(event) =>
                       setHexCellRadiusKm(Number(event.target.value))
                     }
                   />
-                  <strong>{hexCellRadiusKm} km</strong>
+                  <strong>{hexCellRadiusKm.toFixed(1)} km</strong>
                 </label>
               )}
             </div>
             <div className="status-box" aria-live="polite">
-              {calculationProgress ? (
-                <div className="progress-block">
-                  <div className="progress-meta">
-                    <span>{calculationProgress.label}</span>
-                    <strong>{Math.round(calculationProgress.percent)}%</strong>
-                  </div>
-                  <div
-                    aria-label="計算進度"
-                    aria-valuemax={100}
-                    aria-valuemin={0}
-                    aria-valuenow={Math.round(calculationProgress.percent)}
-                    className="progress-bar"
-                    role="progressbar"
-                  >
-                    <span
-                      style={{ width: `${calculationProgress.percent}%` }}
-                    />
-                  </div>
-                </div>
-              ) : loading ? (
-                "處理中..."
-              ) : (
-                status
-              )}
+              {loading ? "處理中..." : status}
             </div>
             {error && <div className="error-box">{error}</div>}
           </div>
         </section>
 
         {selectedPoi && (
-          <section className="panel">
+          <section className={getMobileTabPanelClass("results", "panel poi-panel")}>
             <div className="panel-title">
               <MapPin aria-hidden="true" />
               <h2>選取地點</h2>
@@ -2568,7 +2976,7 @@ function App() {
           </section>
         )}
 
-        <section className="panel results-panel">
+        <section className={getMobileTabPanelClass("results", "panel results-panel")}>
           <div className="panel-title">
             <Sparkles aria-hidden="true" />
             <h2>星形結果</h2>
@@ -2648,7 +3056,7 @@ function App() {
           )}
         </section>
 
-        <section className="panel favorites-panel">
+        <section className={getMobileTabPanelClass("favorites", "panel favorites-panel")}>
           <div className="panel-title">
             <Star aria-hidden="true" />
             <h2>我的最愛</h2>
@@ -2707,7 +3115,7 @@ function App() {
           </div>
         </section>
 
-        <section className="panel about-panel">
+        <section className="panel about-panel mobile-about-panel">
           <div className="panel-title">
             <UserRound aria-hidden="true" />
             <h2>About Me</h2>
@@ -2736,8 +3144,28 @@ function App() {
         </section>
       </aside>
 
+      <div
+        aria-label="調整地圖與設定比例"
+        aria-orientation="horizontal"
+        aria-valuemax={100}
+        aria-valuemin={0}
+        aria-valuenow={Math.round(mobileMapSplitPercent)}
+        className="mobile-splitter"
+        role="separator"
+        tabIndex={0}
+        title="拖曳調整地圖與設定比例，雙擊回到 50:50"
+        onDoubleClick={() => setMobileMapSplitPercent(50)}
+        onKeyDown={handleMobileSplitterKeyDown}
+        onPointerDown={handleMobileSplitterPointerDown}
+        onPointerMove={handleMobileSplitterPointerMove}
+        onPointerUp={handleMobileSplitterPointerUp}
+        onPointerCancel={handleMobileSplitterPointerUp}
+      >
+        <span aria-hidden="true" />
+      </div>
+
       <section className="map-column" aria-label="互動地圖">
-        <header className="app-header">
+        <header className="app-header" ref={appHeaderRef}>
           <div className="brand-lockup">
             <img
               aria-hidden="true"
@@ -2749,6 +3177,15 @@ function App() {
             <h1>Mapping Star</h1>
           </div>
           <div className="header-actions">
+            <button
+              aria-label={`切換地圖圖層，目前為${currentMapLayerOption.label}`}
+              className="layer-toggle"
+              title={`切換地圖圖層，目前為${currentMapLayerOption.label}`}
+              type="button"
+              onClick={handleMapLayerCycle}
+            >
+              <CurrentMapLayerIcon size={18} />
+            </button>
             <div
               className="map-layer-row map-layer-row--header"
               role="group"
@@ -2787,6 +3224,46 @@ function App() {
         </header>
         <div className="map-wrap">
           <div ref={mapElementRef} className="map" />
+          {calculationProgress && (
+            <div className="map-progress" aria-live="polite">
+              <div className="progress-block">
+                <div className="progress-meta">
+                  <span>{calculationProgress.label}</span>
+                  <strong>{Math.round(calculationProgress.percent)}%</strong>
+                </div>
+                <div
+                  aria-label="搜尋繪製進度"
+                  aria-valuemax={100}
+                  aria-valuemin={0}
+                  aria-valuenow={Math.round(calculationProgress.percent)}
+                  className="progress-bar"
+                  role="progressbar"
+                >
+                  <span style={{ width: `${calculationProgress.percent}%` }} />
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="map-action-stack" aria-label="地圖快速操作">
+            <button
+              type="button"
+              title="回到魔法陣"
+              aria-label="回到魔法陣"
+              onClick={() => selectedResult && fitMapToResult(selectedResult)}
+              disabled={!selectedResult}
+            >
+              <Sparkles size={18} />
+            </button>
+            <button
+              type="button"
+              title="回到當前位置"
+              aria-label="回到當前位置"
+              onClick={handleLocate}
+              disabled={loading}
+            >
+              <LocateFixed size={18} />
+            </button>
+          </div>
           <div className="map-counter">
             <strong>{visiblePois.length}</strong> POI
             {pois.length !== visiblePois.length && (

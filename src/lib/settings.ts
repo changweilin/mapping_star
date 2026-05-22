@@ -29,7 +29,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   candidatesPerSlot: 8,
   rotationStepDeg: 3,
   searchStrategy: "honeycomb",
-  hexCellRadiusKm: 4,
+  hexCellRadiusKm: 0.5,
   showSectors: true,
   selectedCategoryIds: DEFAULT_CATEGORY_IDS,
   theme: "light",
@@ -40,6 +40,20 @@ const clampNumber = (value: unknown, min: number, max: number, fallback: number)
   const numberValue = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(numberValue)) return fallback;
   return Math.min(max, Math.max(min, Math.round(numberValue)));
+};
+
+const clampSteppedNumber = (
+  value: unknown,
+  min: number,
+  max: number,
+  fallback: number,
+  step: number
+) => {
+  const numberValue = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numberValue)) return fallback;
+  const clampedValue = Math.min(max, Math.max(min, numberValue));
+  const decimals = step.toString().split(".")[1]?.length ?? 0;
+  return Number((Math.round(clampedValue / step) * step).toFixed(decimals));
 };
 
 const parseStarMode = (value: unknown): StarMode =>
@@ -112,11 +126,12 @@ export const normalizeSettings = (value: unknown): AppSettings => {
       DEFAULT_APP_SETTINGS.rotationStepDeg
     ),
     searchStrategy: parseSearchStrategy(source.searchStrategy),
-    hexCellRadiusKm: clampNumber(
+    hexCellRadiusKm: clampSteppedNumber(
       source.hexCellRadiusKm,
-      1,
+      0.1,
       10,
-      DEFAULT_APP_SETTINGS.hexCellRadiusKm
+      DEFAULT_APP_SETTINGS.hexCellRadiusKm,
+      0.1
     ),
     showSectors:
       typeof source.showSectors === "boolean"

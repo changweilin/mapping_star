@@ -29,6 +29,7 @@ describe("settings helpers", () => {
     expect(DEFAULT_CATEGORY_IDS).toEqual(["religion"]);
     expect(DEFAULT_APP_SETTINGS.selectedCategoryIds).toEqual(["religion"]);
     expect(DEFAULT_APP_SETTINGS.searchStrategy).toBe("honeycomb");
+    expect(DEFAULT_APP_SETTINGS.hexCellRadiusKm).toBe(0.5);
   });
 
   it("clamps persisted radius range and solver controls to the current UI ranges", () => {
