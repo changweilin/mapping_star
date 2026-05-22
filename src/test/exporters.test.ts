@@ -57,4 +57,10 @@ describe("exporters", () => {
     expect(kml).toContain("<Point><coordinates>121,25,0</coordinates></Point>");
     expect(kml).toContain("<LineString>");
   });
+
+  it("uses stored star names when exporting routes", () => {
+    const gpx = exportGpx("Test", [], [{ ...star, name: "台北101 1km 五芒星" }]);
+
+    expect(gpx).toContain("<name>台北101 1km 五芒星</name>");
+  });
 });

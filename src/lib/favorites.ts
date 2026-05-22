@@ -25,12 +25,15 @@ export const makePoiFavorite = (poi: Poi): FavoriteItem => ({
   poi
 });
 
-export const makeStarFavorite = (star: StarResult): FavoriteItem => ({
+export const makeStarFavorite = (
+  star: StarResult,
+  name = `${star.mode === 5 ? "五芒星" : "六芒星"} ${new Date().toLocaleString(
+    "zh-TW"
+  )}`
+): FavoriteItem => ({
   id: `star-${star.id}`,
   type: "star",
-  name: `${star.mode === 5 ? "五芒星" : "六芒星"} ${new Date().toLocaleString(
-    "zh-TW"
-  )}`,
+  name,
   createdAt: new Date().toISOString(),
-  star
+  star: { ...star, name }
 });

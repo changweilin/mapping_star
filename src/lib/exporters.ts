@@ -19,7 +19,7 @@ const uniquePois = (pois: Poi[], stars: StarResult[]) => {
 };
 
 const starName = (star: StarResult, index: number) =>
-  `${star.mode === 5 ? "五芒星" : "六芒星"} ${index + 1}`;
+  star.name ?? `${star.mode === 5 ? "五芒星" : "六芒星"} ${index + 1}`;
 
 export const exportGpx = (
   name: string,

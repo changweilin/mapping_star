@@ -32,6 +32,7 @@ export type StarMode = 5 | 6;
 
 export interface StarResult {
   id: string;
+  name?: string;
   mode: StarMode;
   center: LatLng;
   points: Poi[];

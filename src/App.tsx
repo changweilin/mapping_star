@@ -64,6 +64,7 @@ import {
   type MapLayerId
 } from "./lib/settings";
 import { solveStarFromPois } from "./lib/solver";
+import { makeAutomaticStarName } from "./lib/starNaming";
 import type { FavoriteItem, LatLng, Poi, StarMode, StarResult } from "./types";
 
 type MagicPlaybackMode = "single" | "continuous" | "loop-all" | "loop-one";
@@ -784,6 +785,10 @@ function App() {
   const [center, setCenter] = useState<LatLng>(
     initialLastStar?.center ?? DEFAULT_CENTER
   );
+  const [centerName, setCenterName] = useState(
+    initialLastStar?.name ??
+      formatCoordinate(initialLastStar?.center ?? DEFAULT_CENTER)
+  );
   const [searchText, setSearchText] = useState("");
   const [innerRadiusKm, setInnerRadiusKm] = useState(
     initialSettings.innerRadiusKm
@@ -1282,6 +1287,7 @@ function App() {
         lng: event.latlng.lng
       };
       setCenter(nextCenter);
+      setCenterName(formatCoordinate(nextCenter));
       setStatus("中心游標已移動，重新搜尋即可用新的圓心計算。");
       setError("");
     });
@@ -1705,6 +1711,7 @@ function App() {
     try {
       const result = await searchPlace(searchText);
       setCenter(result.center);
+      setCenterName(result.label);
       mapRef.current?.setView([result.center.lat, result.center.lng], 12);
       setStatus(`中心已移至 ${result.label}。`);
     } catch (searchError) {
@@ -1729,6 +1736,7 @@ function App() {
           lng: position.coords.longitude
         };
         setCenter(nextCenter);
+        setCenterName("目前位置");
         mapRef.current?.setView([nextCenter.lat, nextCenter.lng], 13);
         setStatus("已使用目前位置放置中心游標。");
         setLoading(false);
@@ -1828,6 +1836,7 @@ function App() {
         lng: favorite.poi.lng
       };
       setCenter(nextCenter);
+      setCenterName(favorite.name);
       setSelectedPoi(favorite.poi);
       mapRef.current?.setView([nextCenter.lat, nextCenter.lng], 15);
       setStatus(`已移至我的最愛：${favorite.name}`);
@@ -1867,6 +1876,7 @@ function App() {
       rotationStepDeg
     });
     setCenter(restoredStar.center);
+    setCenterName(restoredStar.name ?? favorite.name);
     setStarMode(restoredStar.mode);
     setInnerRadiusKm(nextInnerRadiusKm);
     setOuterRadiusKm(nextOuterRadiusKm);
@@ -1887,19 +1897,42 @@ function App() {
   const isStarFavorite = (star: StarResult) =>
     favorites.some((favorite) => favorite.id === `star-${star.id}`);
 
+  const getAutomaticNameForStar = (star: StarResult) =>
+    star.name ??
+    makeAutomaticStarName({
+      center: star.center,
+      centerName,
+      favorites,
+      outerRadiusMeters,
+      pois,
+      selectedCategoryIds,
+      star
+    });
+
+  const addSelectedStarFavorite = () => {
+    if (!selectedResult) return;
+    addFavorite(
+      makeStarFavorite(selectedResult, getAutomaticNameForStar(selectedResult))
+    );
+  };
+
   const exportSelected = (format: "gpx" | "kml") => {
     if (!selectedResult) {
       setError("目前沒有可匯出的星形結果。");
       return;
     }
 
+    const namedResult = {
+      ...selectedResult,
+      name: getAutomaticNameForStar(selectedResult)
+    };
     const content =
       format === "gpx"
-        ? exportGpx("Mapping Star Result", selectedResult.points, [
-            selectedResult
+        ? exportGpx("Mapping Star Result", namedResult.points, [
+            namedResult
           ])
-        : exportKml("Mapping Star Result", selectedResult.points, [
-            selectedResult
+        : exportKml("Mapping Star Result", namedResult.points, [
+            namedResult
           ]);
     downloadText(
       `mapping-star-result.${format}`,
@@ -2452,7 +2485,7 @@ function App() {
                   onClick={() => setSelectedResultIndex(index)}
                 >
                   <strong>
-                    {result.mode === 5 ? "五芒星" : "六芒星"} #{index + 1}
+                    {getAutomaticNameForStar(result)}
                   </strong>
                   <span>分數 {result.score.toFixed(3)}</span>
                   <span>{formatDistance(result.radiusMeanMeters)}</span>
@@ -2492,7 +2525,7 @@ function App() {
                 <button
                   className="secondary-button"
                   type="button"
-                  onClick={() => addFavorite(makeStarFavorite(selectedResult))}
+                  onClick={addSelectedStarFavorite}
                   disabled={isStarFavorite(selectedResult)}
                 >
                   <Star size={17} />
