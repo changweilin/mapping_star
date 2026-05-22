@@ -91,6 +91,7 @@ type StarResultSortKey =
   | "angle"
   | "circumference-error"
   | "center-error";
+type StarResultSortDirection = "asc" | "desc";
 
 const DEFAULT_CENTER: LatLng = { lat: 25.033964, lng: 121.564468 };
 const MAX_RENDERED_POIS = 350;
@@ -132,11 +133,11 @@ const DEFAULT_DESKTOP_SECTION_EXPANSION = {
 } satisfies Record<MobileSettingsTab, boolean>;
 
 const STAR_RESULT_SORT_OPTIONS = [
-  { id: "score", label: "分數小到大" },
-  { id: "radius", label: "半徑小到大" },
-  { id: "angle", label: "角度小到大" },
-  { id: "circumference-error", label: "圓周誤差小到大" },
-  { id: "center-error", label: "中心誤差小到大" }
+  { id: "score", label: "分數" },
+  { id: "radius", label: "半徑" },
+  { id: "angle", label: "角度" },
+  { id: "circumference-error", label: "圓周誤差" },
+  { id: "center-error", label: "中心誤差" }
 ] satisfies Array<{ id: StarResultSortKey; label: string }>;
 
 type RadiusHandle = "inner" | "outer";
@@ -228,6 +229,14 @@ type CompletionNotice = {
   id: string;
   title: string;
   message: string;
+};
+type StarResultAggregateStats = {
+  count: number;
+  averageRadiusMeters: number;
+  averageCircumferenceErrorMeters: number;
+  averageAngleErrorDeg: number;
+  averageCenterErrorMeters: number;
+  averageScore: number;
 };
 
 type MapTileLayerConfig = {
@@ -441,9 +450,10 @@ const compareStarResultsByScore = (left: StarResult, right: StarResult) =>
 
 const sortStarResults = (
   results: StarResult[],
-  sortKey: StarResultSortKey
-) =>
-  [...results].sort((left, right) => {
+  sortKey: StarResultSortKey,
+  direction: StarResultSortDirection
+) => {
+  const sorted = [...results].sort((left, right) => {
     switch (sortKey) {
       case "radius":
         return (
@@ -474,6 +484,44 @@ const sortStarResults = (
         return compareStarResultsByScore(left, right);
     }
   });
+  return direction === "asc" ? sorted : sorted.reverse();
+};
+
+const averageStarResultValue = (
+  results: StarResult[],
+  getValue: (result: StarResult) => number
+) =>
+  results.length === 0
+    ? 0
+    : results.reduce((total, result) => total + getValue(result), 0) /
+      results.length;
+
+const getStarResultAggregateStats = (
+  results: StarResult[]
+): StarResultAggregateStats | null => {
+  if (results.length === 0) return null;
+
+  return {
+    count: results.length,
+    averageRadiusMeters: averageStarResultValue(
+      results,
+      (result) => result.radiusMeanMeters
+    ),
+    averageCircumferenceErrorMeters: averageStarResultValue(
+      results,
+      (result) => result.radiusStdMeters
+    ),
+    averageAngleErrorDeg: averageStarResultValue(
+      results,
+      (result) => result.angleErrorDeg
+    ),
+    averageCenterErrorMeters: averageStarResultValue(
+      results,
+      getStarCenterErrorMeters
+    ),
+    averageScore: averageStarResultValue(results, (result) => result.score)
+  };
+};
 
 const getNowMs = () =>
   typeof performance === "undefined" ? Date.now() : performance.now();
@@ -1527,6 +1575,9 @@ function App() {
   const [selectedResultIndex, setSelectedResultIndex] = useState(0);
   const [starResultSort, setStarResultSort] =
     useState<StarResultSortKey>("score");
+  const [starResultSortDirection, setStarResultSortDirection] =
+    useState<StarResultSortDirection>("asc");
+  const [expandedResultId, setExpandedResultId] = useState<string | null>(null);
   const [selectedPoi, setSelectedPoi] = useState<Poi | null>(null);
   const [magicAnimationIndex, setMagicAnimationIndex] = useState(0);
   const [magicPlayback, setMagicPlayback] =
@@ -1593,8 +1644,12 @@ function App() {
     [selectedCategoryIds]
   );
   const sortedResults = useMemo(
-    () => sortStarResults(results, starResultSort),
-    [results, starResultSort]
+    () => sortStarResults(results, starResultSort, starResultSortDirection),
+    [results, starResultSort, starResultSortDirection]
+  );
+  const resultAggregateStats = useMemo(
+    () => getStarResultAggregateStats(results),
+    [results]
   );
   const selectedResult = sortedResults[selectedResultIndex] ?? null;
   const magicAnimationOptions = useMemo(
@@ -1611,12 +1666,10 @@ function App() {
   const currentMapLayerOption =
     MAP_LAYER_OPTIONS.find((option) => option.id === mapLayer) ??
     MAP_LAYER_OPTIONS[0];
-  const starResultSortLabel =
-    STAR_RESULT_SORT_OPTIONS.find((option) => option.id === starResultSort)
-      ?.label ?? STAR_RESULT_SORT_OPTIONS[0].label;
   const CurrentMapLayerIcon = currentMapLayerOption.Icon;
   const searchDrawButtonLabel = isSearchDrawing ? "取消搜索" : "搜索繪製";
   const isSearchSettingsLocked = isSearchDrawing;
+  const areFavoritesLocked = isSearchDrawing;
   const isSidebarSectionExpanded = (tab: MobileSettingsTab) =>
     isMobileLayout || expandedDesktopSections[tab];
   const toggleDesktopSection = (tab: MobileSettingsTab) => {
@@ -1751,12 +1804,23 @@ function App() {
       MAP_LAYER_OPTIONS[(currentIndex + 1) % MAP_LAYER_OPTIONS.length].id
     );
   };
-  const handleStarResultSortChange = (value: string) => {
-    const nextSort =
-      STAR_RESULT_SORT_OPTIONS.find((option) => option.id === value)?.id ??
-      "score";
+  const handleStarResultSortSelect = (nextSort: StarResultSortKey) => {
+    setStarResultSortDirection((currentDirection) =>
+      nextSort === starResultSort
+        ? currentDirection === "asc"
+          ? "desc"
+          : "asc"
+        : "asc"
+    );
     setStarResultSort(nextSort);
     setSelectedResultIndex(0);
+    setExpandedResultId(null);
+  };
+  const handleResultToggle = (result: StarResult, index: number) => {
+    setSelectedResultIndex(index);
+    setExpandedResultId((current) =>
+      current === result.id ? null : result.id
+    );
   };
   const skipNextAutoSolveForCenter = (nextCenter: LatLng) => {
     skipNextAutoSolveRef.current = makeAutoSolveKey({
@@ -3192,6 +3256,7 @@ function App() {
     clearCompletionNotice();
     setResults([]);
     setSelectedResultIndex(0);
+    setExpandedResultId(null);
     setSelectedPoi(null);
     setHoneycombCompletedTargetCount(
       searchStrategy === "honeycomb" ? 0 : null
@@ -3372,6 +3437,11 @@ function App() {
   };
 
   const addFavorite = (favorite: FavoriteItem) => {
+    if (areFavoritesLocked) {
+      setStatus("搜索繪製進行中，我的最愛已暫時鎖定。");
+      return;
+    }
+
     setFavorites((current) => {
       if (current.some((item) => item.id === favorite.id)) return current;
       return [favorite, ...current];
@@ -3380,10 +3450,20 @@ function App() {
   };
 
   const removeFavorite = (favoriteId: string) => {
+    if (areFavoritesLocked) {
+      setStatus("搜索繪製進行中，我的最愛已暫時鎖定。");
+      return;
+    }
+
     setFavorites((current) => current.filter((item) => item.id !== favoriteId));
   };
 
   const restoreFavorite = (favorite: FavoriteItem) => {
+    if (areFavoritesLocked) {
+      setStatus("搜索繪製進行中，我的最愛已暫時鎖定。");
+      return;
+    }
+
     setError("");
 
     if (favorite.type === "poi") {
@@ -3461,22 +3541,16 @@ function App() {
       star
     });
 
-  const addSelectedStarFavorite = () => {
-    if (!selectedResult) return;
+  const addStarFavorite = (star: StarResult) => {
     addFavorite(
-      makeStarFavorite(selectedResult, getAutomaticNameForStar(selectedResult))
+      makeStarFavorite(star, getAutomaticNameForStar(star))
     );
   };
 
-  const exportSelected = (format: "gpx" | "kml") => {
-    if (!selectedResult) {
-      setError("目前沒有可匯出的星形結果。");
-      return;
-    }
-
+  const exportStar = (result: StarResult, format: "gpx" | "kml") => {
     const namedResult = {
-      ...selectedResult,
-      name: getAutomaticNameForStar(selectedResult)
+      ...result,
+      name: getAutomaticNameForStar(result)
     };
     const content =
       format === "gpx"
@@ -3496,6 +3570,11 @@ function App() {
   };
 
   const exportFavorites = (format: "gpx" | "kml") => {
+    if (areFavoritesLocked) {
+      setStatus("搜索繪製進行中，我的最愛已暫時鎖定。");
+      return;
+    }
+
     if (favorites.length === 0) {
       setError("我的最愛目前是空的。");
       return;
@@ -3983,7 +4062,7 @@ function App() {
                 className="secondary-button"
                 type="button"
                 onClick={() => addFavorite(makePoiFavorite(selectedPoi))}
-                disabled={isPoiFavorite(selectedPoi)}
+                disabled={areFavoritesLocked || isPoiFavorite(selectedPoi)}
               >
                 <Star size={17} />
                 {isPoiFavorite(selectedPoi) ? "已收藏" : "加入我的最愛"}
@@ -3994,118 +4073,206 @@ function App() {
             <p className="muted">尚無結果。搜尋 POI 後會列出最佳組合。</p>
           ) : (
             <>
+              {resultAggregateStats && (
+                <div className="result-summary">
+                  <div className="subsection-title">
+                    <Sparkles aria-hidden="true" />
+                    <strong>平均統計</strong>
+                  </div>
+                  <div className="metrics-row">
+                    <ResultMetric
+                      label="結果數"
+                      value={`${resultAggregateStats.count} 組`}
+                    />
+                    <ResultMetric
+                      label="平均半徑"
+                      value={formatDistance(
+                        resultAggregateStats.averageRadiusMeters
+                      )}
+                    />
+                    <ResultMetric
+                      label="平均圓周誤差"
+                      value={formatDistance(
+                        resultAggregateStats.averageCircumferenceErrorMeters
+                      )}
+                    />
+                    <ResultMetric
+                      label="平均角度誤差"
+                      value={`${resultAggregateStats.averageAngleErrorDeg.toFixed(
+                        1
+                      )}°`}
+                    />
+                    <ResultMetric
+                      label="平均中心誤差"
+                      value={formatDistance(
+                        resultAggregateStats.averageCenterErrorMeters
+                      )}
+                    />
+                    <ResultMetric
+                      label="平均分數"
+                      value={resultAggregateStats.averageScore.toFixed(3)}
+                    />
+                  </div>
+                </div>
+              )}
               <div className="result-toolbar">
-                <MarqueeSelect
-                  label="排序"
-                  value={starResultSort}
-                  valueLabel={starResultSortLabel}
-                  onChange={handleStarResultSortChange}
+                <div
+                  className="result-sort-grid"
+                  role="group"
+                  aria-label="星形結果排序"
                 >
                   {STAR_RESULT_SORT_OPTIONS.map((option) => (
-                    <option value={option.id} key={option.id}>
-                      {option.label}
-                    </option>
+                    <button
+                      aria-pressed={starResultSort === option.id}
+                      className={`result-sort-button ${
+                        starResultSort === option.id ? "active" : ""
+                      }`}
+                      key={option.id}
+                      type="button"
+                      title={`依${option.label}${
+                        starResultSort === option.id &&
+                        starResultSortDirection === "asc"
+                          ? "反向"
+                          : "順向"
+                      }排序`}
+                      onClick={() => handleStarResultSortSelect(option.id)}
+                    >
+                      <span>{option.label}</span>
+                      {starResultSort === option.id ? (
+                        starResultSortDirection === "asc" ? (
+                          <ChevronUp aria-hidden="true" size={14} />
+                        ) : (
+                          <ChevronDown aria-hidden="true" size={14} />
+                        )
+                      ) : null}
+                    </button>
                   ))}
-                </MarqueeSelect>
+                </div>
                 <span className="result-toolbar__count">
                   內外半徑內 {sortedResults.length} 組
                 </span>
               </div>
               <div className="result-list">
-                {sortedResults.map((result, index) => (
-                  <button
-                    className={`result-row ${
-                      selectedResultIndex === index ? "active" : ""
-                    }`}
-                    type="button"
-                    key={result.id}
-                    onClick={() => setSelectedResultIndex(index)}
-                  >
-                    <strong>{getAutomaticNameForStar(result)}</strong>
-                    <span className="result-row__metrics">
-                      <span>半徑 {formatDistance(result.radiusMeanMeters)}</span>
-                      <span>角度 {formatDegrees(result.rotationDeg)}</span>
-                      <span>
-                        圓周誤差 {formatDistance(result.radiusStdMeters)}
-                      </span>
-                      <span>
-                        中心誤差{" "}
-                        {formatDistance(getStarCenterErrorMeters(result))}
-                      </span>
-                      <span>分數 {result.score.toFixed(3)}</span>
-                    </span>
-                  </button>
-                ))}
+                {sortedResults.map((result, index) => {
+                  const isActive = selectedResultIndex === index;
+                  const isExpanded = expandedResultId === result.id;
+
+                  return (
+                    <article
+                      className={`result-item ${
+                        isActive ? "active" : ""
+                      } ${isExpanded ? "expanded" : ""}`}
+                      key={result.id}
+                    >
+                      <button
+                        aria-expanded={isExpanded}
+                        className="result-row"
+                        type="button"
+                        onClick={() => handleResultToggle(result, index)}
+                      >
+                        <span className="result-row__heading">
+                          <strong>{getAutomaticNameForStar(result)}</strong>
+                          {isExpanded ? (
+                            <ChevronUp aria-hidden="true" size={16} />
+                          ) : (
+                            <ChevronDown aria-hidden="true" size={16} />
+                          )}
+                        </span>
+                        <span className="result-row__metrics">
+                          <span>
+                            半徑 {formatDistance(result.radiusMeanMeters)}
+                          </span>
+                          <span>角度 {formatDegrees(result.rotationDeg)}</span>
+                          <span>
+                            圓周誤差 {formatDistance(result.radiusStdMeters)}
+                          </span>
+                          <span>
+                            中心誤差{" "}
+                            {formatDistance(getStarCenterErrorMeters(result))}
+                          </span>
+                          <span>分數 {result.score.toFixed(3)}</span>
+                        </span>
+                      </button>
+                      {isExpanded && (
+                        <div className="result-expanded">
+                          <div className="subsection-title">
+                            <Sparkles aria-hidden="true" />
+                            <strong>星芒座標</strong>
+                          </div>
+                          <ol className="point-list">
+                            {result.points.map((point, pointIndex) => (
+                              <li key={point.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedPoi(point)}
+                                >
+                                  <span className="point-list__index">
+                                    {pointIndex + 1}
+                                  </span>
+                                  <span className="point-list__text">
+                                    <strong>{point.name}</strong>
+                                    <small>
+                                      {formatCoordinate({
+                                        lat: point.lat,
+                                        lng: point.lng
+                                      })}{" "}
+                                      · {formatDistance(point.distanceMeters)} /{" "}
+                                      {Math.round(point.bearingDeg)}° ·{" "}
+                                      {point.categoryLabel}
+                                    </small>
+                                  </span>
+                                </button>
+                              </li>
+                            ))}
+                          </ol>
+                          <div className="action-row">
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() => addStarFavorite(result)}
+                              disabled={
+                                areFavoritesLocked || isStarFavorite(result)
+                              }
+                            >
+                              <Star size={17} />
+                              {isStarFavorite(result)
+                                ? "已收藏星形"
+                                : "收藏星形"}
+                            </button>
+                          </div>
+                          <div className="download-grid">
+                            <button
+                              type="button"
+                              onClick={() => exportStar(result, "gpx")}
+                            >
+                              <Download size={16} />
+                              GPX
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => exportStar(result, "kml")}
+                            >
+                              <Download size={16} />
+                              KML
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
               </div>
             </>
-          )}
-
-          {selectedResult && (
-            <div className="selected-result">
-              <div className="metrics-row">
-                <ResultMetric
-                  label="平均半徑"
-                  value={formatDistance(selectedResult.radiusMeanMeters)}
-                />
-                <ResultMetric
-                  label="角度"
-                  value={formatDegrees(selectedResult.rotationDeg)}
-                />
-                <ResultMetric
-                  label="圓周誤差"
-                  value={formatDistance(selectedResult.radiusStdMeters)}
-                />
-                <ResultMetric
-                  label="角度誤差"
-                  value={`${selectedResult.angleErrorDeg.toFixed(1)}°`}
-                />
-                <ResultMetric
-                  label="中心誤差"
-                  value={formatDistance(getStarCenterErrorMeters(selectedResult))}
-                />
-                <ResultMetric
-                  label="分數"
-                  value={selectedResult.score.toFixed(3)}
-                />
-              </div>
-              <ol className="point-list">
-                {selectedResult.points.map((point, index) => (
-                  <li key={point.id}>
-                    <button type="button" onClick={() => setSelectedPoi(point)}>
-                      <span>{index + 1}</span>
-                      <strong>{point.name}</strong>
-                      <small>{point.categoryLabel}</small>
-                    </button>
-                  </li>
-                ))}
-              </ol>
-              <div className="action-row">
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={addSelectedStarFavorite}
-                  disabled={isStarFavorite(selectedResult)}
-                >
-                  <Star size={17} />
-                  {isStarFavorite(selectedResult) ? "已收藏星形" : "收藏星形"}
-                </button>
-              </div>
-              <div className="download-grid">
-                <button type="button" onClick={() => exportSelected("gpx")}>
-                  <Download size={16} />
-                  GPX
-                </button>
-                <button type="button" onClick={() => exportSelected("kml")}>
-                  <Download size={16} />
-                  KML
-                </button>
-              </div>
-            </div>
           )}
         </section>
 
         <section className={getMobileTabPanelClass("favorites", "panel favorites-panel")}>
           {renderPanelTitle("favorites", "我的最愛", Star)}
+          {areFavoritesLocked && (
+            <p className="favorites-lock-note">
+              搜索繪製進行中，我的最愛已暫時鎖定。
+            </p>
+          )}
           {favorites.length === 0 ? (
             <p className="muted">收藏地點或星形後會顯示在這裡。</p>
           ) : (
@@ -4126,6 +4293,7 @@ function App() {
                       className="favorite-restore"
                       type="button"
                       onClick={() => restoreFavorite(favorite)}
+                      disabled={areFavoritesLocked}
                     >
                       <span className="favorite-kind">
                         {favorite.type === "poi" ? "地點" : "星形"}
@@ -4140,6 +4308,7 @@ function App() {
                       type="button"
                       title="移除收藏"
                       onClick={() => removeFavorite(favorite.id)}
+                      disabled={areFavoritesLocked}
                     >
                       <Trash2 size={15} />
                     </button>
@@ -4149,11 +4318,19 @@ function App() {
             </div>
           )}
           <div className="download-grid">
-            <button type="button" onClick={() => exportFavorites("gpx")}>
+            <button
+              type="button"
+              onClick={() => exportFavorites("gpx")}
+              disabled={areFavoritesLocked}
+            >
               <Download size={16} />
               收藏 GPX
             </button>
-            <button type="button" onClick={() => exportFavorites("kml")}>
+            <button
+              type="button"
+              onClick={() => exportFavorites("kml")}
+              disabled={areFavoritesLocked}
+            >
               <Download size={16} />
               收藏 KML
             </button>
