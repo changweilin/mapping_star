@@ -170,6 +170,10 @@ type DrawSummary = {
   magicSpeed: MagicSpeed;
   notes: string[];
 };
+type ProgressStep = {
+  percent: number;
+  label: string;
+};
 
 type MapTileLayerConfig = {
   url: string;
@@ -429,6 +433,47 @@ const formatDrawSummaryStatus = (summary: DrawSummary) => {
     summary
   )}${warningText}。`;
 };
+
+const interpolateProgress = (
+  startPercent: number,
+  endPercent: number,
+  completed: number,
+  total: number
+) => {
+  const ratio = total <= 0 ? 0 : Math.max(0, Math.min(1, completed / total));
+  return startPercent + (endPercent - startPercent) * ratio;
+};
+
+const getCategoryDownloadProgressPercent = (
+  searchStrategy: SearchStrategy,
+  completedCategories: number,
+  totalCategories: number
+) =>
+  searchStrategy === "honeycomb"
+    ? interpolateProgress(34, 58, completedCategories, totalCategories)
+    : interpolateProgress(34, 66, completedCategories, totalCategories);
+
+const getAnalyzeProgressPercent = (searchStrategy: SearchStrategy) =>
+  searchStrategy === "honeycomb" ? 62 : 68;
+
+const getRecalculateProgressSteps = (
+  searchStrategy: SearchStrategy
+): ProgressStep[] =>
+  searchStrategy === "honeycomb"
+    ? [
+        { percent: 12, label: "整理目前候選點" },
+        { percent: 42, label: "建立蜂巢索引" },
+        { percent: 76, label: "掃描蜂巢環帶與候選組合" }
+      ]
+    : [
+        { percent: 12, label: "整理目前候選點" },
+        { percent: 64, label: "計算魔法陣組合" }
+      ];
+
+const getHoneycombSolveProgressSteps = (): ProgressStep[] => [
+  { percent: 70, label: "建立蜂巢索引與旋轉優先序" },
+  { percent: 82, label: "掃描蜂巢環帶與候選組合" }
+];
 
 const mergePois = (currentPois: Poi[], nextPois: Poi[]) => {
   const byId = new Map(currentPois.map((poi) => [poi.id, poi]));
@@ -2327,10 +2372,10 @@ function App() {
     setDrawSummary(null);
     setSelectedPoi(null);
     try {
-      setProgressStep(12, "整理目前候選點");
-      await waitForPaint();
-      setProgressStep(64, "計算魔法陣組合");
-      await waitForPaint();
+      for (const progressStep of getRecalculateProgressSteps(searchStrategy)) {
+        setProgressStep(progressStep.percent, progressStep.label);
+        await waitForPaint();
+      }
       const solveStartedAtMs = getNowMs();
       const nextResults = runSolver();
       solveElapsedMs = getNowMs() - solveStartedAtMs;
@@ -2477,8 +2522,11 @@ function App() {
           onCategoryResult: (progress) => {
             latestMergedPois = mergePois(latestMergedPois, progress.pois);
             setPois(latestMergedPois);
-            const progressPercent =
-              34 + (progress.completedCategories / progress.totalCategories) * 32;
+            const progressPercent = getCategoryDownloadProgressPercent(
+              searchStrategy,
+              progress.completedCategories,
+              progress.totalCategories
+            );
             let progressLabel = `${progress.category.label} 已搜索 ${progress.pois.length} 筆`;
             if (searchStrategy === "honeycomb" && !hasDrawnFirstSearchResult) {
               const previewSolveStartedAtMs = getNowMs();
@@ -2504,8 +2552,19 @@ function App() {
       const mergedPois = mergePois(latestMergedPois, nextPois);
       const addedPoiCount = mergedPois.length - pois.length;
       setPois(mergedPois);
-      setProgressStep(68, `分析 ${mergedPois.length} 個候選點`);
+      setProgressStep(
+        getAnalyzeProgressPercent(searchStrategy),
+        searchStrategy === "honeycomb"
+          ? `整理 ${mergedPois.length} 個蜂巢候選點`
+          : `分析 ${mergedPois.length} 個候選點`
+      );
       await waitForPaint();
+      if (searchStrategy === "honeycomb") {
+        for (const progressStep of getHoneycombSolveProgressSteps()) {
+          setProgressStep(progressStep.percent, progressStep.label);
+          await waitForPaint();
+        }
+      }
       const solveStartedAtMs = getNowMs();
       searchElapsedMs = solveStartedAtMs - startedAtMs;
       const nextResults = runSolver(mergedPois, searchCenter.center);
