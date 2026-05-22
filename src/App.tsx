@@ -3458,27 +3458,27 @@ function App() {
                 </option>
               ))}
             </MarqueeSelect>
+            <MarqueeSelect
+              label="圖案"
+              value={magicAnimationIndex}
+              valueLabel={magicAnimationLabel}
+              onChange={(value) => handleMagicAnimationChange(Number(value))}
+              onTouchCancel={handleMagicAnimationTouchCancel}
+              onTouchEnd={handleMagicAnimationTouchEnd}
+              onTouchMove={handleMagicAnimationTouchMove}
+              onTouchStart={handleMagicAnimationTouchStart}
+              onWheel={handleMagicAnimationWheel}
+            >
+              {magicAnimationOptions.map((option) => (
+                <option value={option.index} key={option.index}>
+                  {option.label}
+                </option>
+              ))}
+            </MarqueeSelect>
           </div>
         </section>
 
-        <section className="magic-draw-actions" aria-label="魔法陣圖案與搜索繪製">
-          <MarqueeSelect
-            label="圖案"
-            value={magicAnimationIndex}
-            valueLabel={magicAnimationLabel}
-            onChange={(value) => handleMagicAnimationChange(Number(value))}
-            onTouchCancel={handleMagicAnimationTouchCancel}
-            onTouchEnd={handleMagicAnimationTouchEnd}
-            onTouchMove={handleMagicAnimationTouchMove}
-            onTouchStart={handleMagicAnimationTouchStart}
-            onWheel={handleMagicAnimationWheel}
-          >
-            {magicAnimationOptions.map((option) => (
-              <option value={option.index} key={option.index}>
-                {option.label}
-              </option>
-            ))}
-          </MarqueeSelect>
+        <section className="magic-draw-actions" aria-label="搜索繪製與星形模式">
           <button
             className="primary-button search-draw-button"
             type="button"
@@ -3488,6 +3488,24 @@ function App() {
             <Play size={17} />
             <span>{searchDrawButtonLabel}</span>
           </button>
+          <div className="mode-row" role="group" aria-label="星形模式">
+            <button
+              className={starMode === 5 ? "selected" : ""}
+              type="button"
+              onClick={() => setStarMode(5)}
+              disabled={isSearchSettingsLocked}
+            >
+              五芒星
+            </button>
+            <button
+              className={starMode === 6 ? "selected" : ""}
+              type="button"
+              onClick={() => setStarMode(6)}
+              disabled={isSearchSettingsLocked}
+            >
+              六芒星
+            </button>
+          </div>
         </section>
 
         <nav className="mobile-settings-tabs" aria-label="手機設定頁籤">
@@ -3616,22 +3634,6 @@ function App() {
 
         <section className={getMobileTabPanelClass("drawing", "panel solver-panel")}>
           {renderPanelTitle("drawing", "繪圖設定", Star)}
-          <div className="mode-row" role="group" aria-label="星形模式">
-            <button
-              className={starMode === 5 ? "selected" : ""}
-              type="button"
-              onClick={() => setStarMode(5)}
-            >
-              五芒星
-            </button>
-            <button
-              className={starMode === 6 ? "selected" : ""}
-              type="button"
-              onClick={() => setStarMode(6)}
-            >
-              六芒星
-            </button>
-          </div>
           <div className="action-row action-row--single">
             <button
               className="secondary-button"

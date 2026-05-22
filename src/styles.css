@@ -272,16 +272,17 @@ a {
 
 .magic-player-fields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   min-width: 0;
 }
 
 .magic-draw-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(126px, auto);
-  gap: 10px;
-  padding: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 8px;
+  padding: 7px;
   color: var(--control-ink);
   background: var(--panel);
   border: 1px solid var(--line);
@@ -290,7 +291,16 @@ a {
 
 .magic-draw-actions .search-draw-button {
   min-width: 0;
-  min-height: 50px;
+  min-height: 38px;
+}
+
+.magic-draw-actions .mode-row {
+  min-width: 0;
+  padding: 2px;
+}
+
+.magic-draw-actions .mode-row button {
+  min-height: 32px;
 }
 
 .eyebrow {
@@ -324,12 +334,23 @@ a {
 }
 
 @media (min-width: 901px) {
-  .desktop-collapsible-panel--collapsed {
-    gap: 0;
+  .desktop-collapsible-panel.desktop-collapsible-panel--collapsed {
+    position: relative;
+    max-height: 108px;
+    overflow: hidden;
+    isolation: isolate;
   }
 
-  .desktop-collapsible-panel--collapsed > :not(.panel-title) {
-    display: none;
+  .desktop-collapsible-panel--collapsed::after {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1;
+    height: 42px;
+    background: linear-gradient(to bottom, transparent, var(--panel) 86%);
+    content: "";
+    pointer-events: none;
   }
 }
 
@@ -2454,14 +2475,14 @@ a {
   }
 
   .magic-player-fields {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 5px;
   }
 
   .magic-draw-actions {
-    grid-template-columns: minmax(0, 1fr) minmax(112px, auto);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
-    padding: 8px;
+    padding: 6px;
   }
 
   .magic-control-button {
