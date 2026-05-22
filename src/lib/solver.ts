@@ -70,6 +70,10 @@ interface StarEdgeSegment {
   to: PlanarPoint;
 }
 
+type RankedStarResult = StarResult & {
+  searchPriorityScore: number;
+};
+
 export const starLineSequences = (mode: StarMode) =>
   mode === 5
     ? [[0, 2, 4, 1, 3, 0]]
@@ -91,6 +95,8 @@ const HEX_DIRECTIONS: HexCell[] = [
   { q: -1, r: 1 },
   { q: 0, r: 1 }
 ];
+
+const HONEYCOMB_EXPANSION_SCORE_STEP = 4;
 
 const getTargetRadiusMeters = (
   outerRadiusMeters: number,
@@ -238,12 +244,14 @@ const buildHoneycombContext = (
 
 const collectHoneycombPoints = (
   context: HoneycombContext,
-  targetCell: HexCell
+  targetCell: HexCell,
+  maxRing = context.priorityRings,
+  minRing = 0
 ) => {
   const points: HoneycombPoint[] = [];
   const seen = new Set<string>();
 
-  for (let ring = 0; ring <= context.priorityRings; ring += 1) {
+  for (let ring = Math.max(0, minRing); ring <= maxRing; ring += 1) {
     for (const cell of getHexRing(targetCell, ring)) {
       const bucket = context.cells.get(hexKey(cell));
       if (!bucket) continue;
@@ -435,9 +443,10 @@ const evaluate = (
 };
 
 const insertBest = (
-  results: StarResult[],
+  results: RankedStarResult[],
   result: StarResult,
-  maxResults: number
+  maxResults: number,
+  searchPriorityScore = result.score
 ) => {
   const signature = result.points
     .map((point) => point.id)
@@ -451,12 +460,20 @@ const insertBest = (
         .join("|") === signature
   );
   if (existingIndex >= 0) {
-    if (results[existingIndex].score <= result.score) return;
+    if (results[existingIndex].searchPriorityScore <= searchPriorityScore) {
+      return;
+    }
     results.splice(existingIndex, 1);
   }
 
-  results.push(result);
-  results.sort((a, b) => a.score - b.score);
+  results.push({
+    ...result,
+    searchPriorityScore
+  });
+  results.sort(
+    (a, b) =>
+      a.searchPriorityScore - b.searchPriorityScore || a.score - b.score
+  );
   if (results.length > maxResults) results.length = maxResults;
 };
 
@@ -498,18 +515,23 @@ const getAngularSlotCandidates = (
     .map(({ poi }) => poi);
 
 const getHoneycombSlotCandidates = (
-  prepared: Poi[],
   context: HoneycombContext,
   target: number,
   slotIndex: number,
   toleranceDeg: number,
   limit: number,
-  edges: StarEdgeSegment[]
+  edges: StarEdgeSegment[],
+  maxRing: number,
+  minRing = 0
 ) => {
   const targetPoint = toPlanarPoint(context.targetRadiusMeters, target);
   const targetCell = pointToHex(targetPoint, context.cellRadiusMeters);
-  const selected = new Set<string>();
-  const priorityCandidates = collectHoneycombPoints(context, targetCell)
+  const priorityCandidates = collectHoneycombPoints(
+    context,
+    targetCell,
+    maxRing,
+    minRing
+  )
     .map((point) => ({
       poi: point.poi,
       error: angularDifferenceDegrees(point.poi.bearingDeg, target)
@@ -527,28 +549,33 @@ const getHoneycombSlotCandidates = (
 
   for (const candidate of rankedPriority) {
     if (candidates.length >= limit) break;
-    selected.add(candidate.poi.id);
     candidates.push(candidate.poi);
   }
 
-  if (candidates.length < limit) {
-    const rankedFallback = rankHoneycombCandidates(
-      getAngularCandidates(prepared, target, toleranceDeg).filter(
-        ({ poi }) => !selected.has(poi.id)
-      ),
-      context,
-      targetCell,
-      slotIndex,
-      edges
-    );
-
-    for (const candidate of rankedFallback) {
-      if (candidates.length >= limit) break;
-      candidates.push(candidate.poi);
-    }
-  }
-
   return candidates;
+};
+
+const getHoneycombFallbackSlotCandidates = (
+  prepared: Poi[],
+  context: HoneycombContext,
+  target: number,
+  slotIndex: number,
+  toleranceDeg: number,
+  limit: number,
+  edges: StarEdgeSegment[]
+) => {
+  const targetPoint = toPlanarPoint(context.targetRadiusMeters, target);
+  const targetCell = pointToHex(targetPoint, context.cellRadiusMeters);
+
+  return rankHoneycombCandidates(
+    getAngularCandidates(prepared, target, toleranceDeg),
+    context,
+    targetCell,
+    slotIndex,
+    edges
+  )
+    .slice(0, limit)
+    .map(({ poi }) => poi);
 };
 
 const scoreHoneycombRotation = (
@@ -590,7 +617,7 @@ export const solveStarFromPois = (
 
   if (prepared.length < mode) return [];
 
-  const results: StarResult[] = [];
+  const results: RankedStarResult[] = [];
   const slotWidth = 360 / mode;
   const halfSlot = slotWidth / 2;
   const step = Math.max(
@@ -639,31 +666,13 @@ export const solveStarFromPois = (
     });
   }
 
-  for (const rotationDeg of rotations) {
-    const targets = getTargets(mode, rotationDeg);
-    const edges = honeycombContext
-      ? makeStarEdgeSegments(mode, targets, honeycombContext.targetRadiusMeters)
-      : [];
-    const slots = targets.map((target, slotIndex) =>
-      honeycombContext
-        ? getHoneycombSlotCandidates(
-            prepared,
-            honeycombContext,
-            target,
-            slotIndex,
-            toleranceDeg,
-            slotCandidateLimit,
-            edges
-          )
-        : getAngularSlotCandidates(
-            prepared,
-            target,
-            toleranceDeg,
-            slotCandidateLimit
-          )
-    );
-
-    if (slots.some((slot) => slot.length === 0)) continue;
+  const addResultsFromSlots = (
+    slots: Poi[][],
+    targets: number[],
+    rotationDeg: number,
+    searchPriorityOffset = 0
+  ) => {
+    if (slots.some((slot) => slot.length === 0)) return;
 
     cartesianUnique(slots, (points) => {
       const evaluated = evaluate(
@@ -685,10 +694,90 @@ export const solveStarFromPois = (
           createdAt: new Date().toISOString(),
           ...evaluated
         },
-        resultPool
+        resultPool,
+        searchPriorityOffset + evaluated.score
       );
     });
+  };
+
+  for (const rotationDeg of rotations) {
+    const targets = getTargets(mode, rotationDeg);
+    const edges = honeycombContext
+      ? makeStarEdgeSegments(mode, targets, honeycombContext.targetRadiusMeters)
+      : [];
+
+    if (honeycombContext) {
+      const addHoneycombStageResults = (
+        maxRing: number,
+        searchPriorityOffset: number,
+        minRing = 0
+      ) => {
+        const slots = targets.map((target, slotIndex) =>
+          getHoneycombSlotCandidates(
+            honeycombContext,
+            target,
+            slotIndex,
+            toleranceDeg,
+            slotCandidateLimit,
+            edges,
+            maxRing,
+            minRing
+          )
+        );
+
+        addResultsFromSlots(
+          slots,
+          targets,
+          rotationDeg,
+          searchPriorityOffset
+        );
+      };
+
+      for (let ring = 0; ring <= honeycombContext.priorityRings; ring += 1) {
+        const searchPriorityOffset = ring * HONEYCOMB_EXPANSION_SCORE_STEP;
+        addHoneycombStageResults(ring, searchPriorityOffset);
+        if (ring > 0) {
+          addHoneycombStageResults(ring, searchPriorityOffset, ring);
+        }
+      }
+
+      const fallbackSlots = targets.map((target, slotIndex) =>
+        getHoneycombFallbackSlotCandidates(
+          prepared,
+          honeycombContext,
+          target,
+          slotIndex,
+          toleranceDeg,
+          slotCandidateLimit,
+          edges
+        )
+      );
+
+      addResultsFromSlots(
+        fallbackSlots,
+        targets,
+        rotationDeg,
+        (honeycombContext.priorityRings + 1) *
+          HONEYCOMB_EXPANSION_SCORE_STEP
+      );
+      continue;
+    }
+
+    addResultsFromSlots(
+      targets.map((target) =>
+        getAngularSlotCandidates(
+          prepared,
+          target,
+          toleranceDeg,
+          slotCandidateLimit
+        )
+      ),
+      targets,
+      rotationDeg
+    );
   }
 
-  return results.slice(0, maxResults);
+  return results
+    .slice(0, maxResults)
+    .map(({ searchPriorityScore, ...result }) => result);
 };

@@ -2218,6 +2218,7 @@ function App() {
     setError("");
     setSelectedPoi(null);
     let latestMergedPois = pois;
+    let hasDrawnFirstSearchResult = false;
     try {
       setProgressStep(8, "解析中心地點");
       const searchCenter = await resolveSearchCenter(false);
@@ -2235,10 +2236,23 @@ function App() {
           onCategoryResult: (progress) => {
             latestMergedPois = mergePois(latestMergedPois, progress.pois);
             setPois(latestMergedPois);
-            setProgressStep(
-              34 + (progress.completedCategories / progress.totalCategories) * 32,
-              `${progress.category.label} 已搜索 ${progress.pois.length} 筆`
-            );
+            const progressPercent =
+              34 + (progress.completedCategories / progress.totalCategories) * 32;
+            let progressLabel = `${progress.category.label} 已搜索 ${progress.pois.length} 筆`;
+            if (searchStrategy === "honeycomb" && !hasDrawnFirstSearchResult) {
+              const previewResults = solveStarFromPois(latestMergedPois, {
+                ...solverParams,
+                center: searchCenter.center,
+                maxResults: 1
+              });
+              if (previewResults.length > 0) {
+                hasDrawnFirstSearchResult = true;
+                setResults(previewResults);
+                setSelectedResultIndex(0);
+                progressLabel = `${progressLabel}，已先畫出第一個魔法陣，繼續搜索其他蜂巢`;
+              }
+            }
+            setProgressStep(progressPercent, progressLabel);
           }
         }
       );
