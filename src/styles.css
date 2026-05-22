@@ -989,6 +989,81 @@ a {
   gap: 10px;
 }
 
+.draw-summary {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.draw-summary__head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.draw-summary__head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.draw-summary__head span {
+  flex: 0 0 auto;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.draw-summary__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 7px;
+}
+
+.draw-summary__details {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.draw-summary__details div {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.draw-summary__details dt {
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.draw-summary__details dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--control-ink);
+  font-size: 12px;
+}
+
+.draw-summary__notes {
+  margin: 0;
+  padding: 8px;
+  color: var(--ink-soft);
+  background: var(--input-bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
 .metrics-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

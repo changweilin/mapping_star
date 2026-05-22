@@ -84,6 +84,7 @@ type MobileSettingsTab =
 const DEFAULT_CENTER: LatLng = { lat: 25.033964, lng: 121.564468 };
 const MAX_RENDERED_POIS = 350;
 const MAX_RADIUS_KM = 30;
+const MAX_STAR_RESULTS = 5;
 const MAGIC_POINT_DELAY_MS = 1880;
 const MAGIC_POINT_STEP_MS = 90;
 const MAGIC_POINT_DURATION_MS = 520;
@@ -132,6 +133,42 @@ type MagicSelectScrollLockState = {
 type CalculationProgress = {
   label: string;
   percent: number;
+};
+type DrawSummary = {
+  id: string;
+  sourceLabel: string;
+  startedAtIso: string;
+  finishedAtIso: string;
+  firstResultAtIso: string | null;
+  firstResultElapsedMs: number | null;
+  firstResultSourceLabel: string | null;
+  totalElapsedMs: number;
+  searchElapsedMs: number | null;
+  solveElapsedMs: number;
+  previewSolveCount: number;
+  previewSolveElapsedMs: number;
+  renderElapsedMs: number;
+  estimatedAnimationMs: number | null;
+  resultCount: number;
+  resultLimit: number;
+  eligiblePoiCount: number;
+  totalPoiCount: number;
+  fetchedPoiCount: number | null;
+  addedPoiCount: number | null;
+  warningCount: number;
+  categoryCount: number | null;
+  mode: StarMode;
+  centerLabel: string;
+  centerCoordinate: string;
+  radiusRangeLabel: string;
+  searchStrategy: SearchStrategy;
+  angleToleranceDeg: number;
+  candidatesPerSlot: number;
+  rotationStepDeg: number;
+  hexCellRadiusKm: number;
+  animationLabel: string;
+  magicSpeed: MagicSpeed;
+  notes: string[];
 };
 
 type MapTileLayerConfig = {
@@ -323,6 +360,75 @@ const createBaseTileLayer = (layerId: MapLayerId) => {
 
 const formatCoordinate = ({ lat, lng }: LatLng) =>
   `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+
+const getNowMs = () =>
+  typeof performance === "undefined" ? Date.now() : performance.now();
+
+const formatElapsedMs = (valueMs: number | null | undefined) => {
+  if (valueMs === null || valueMs === undefined) return "尚未產生";
+
+  const safeValueMs = Math.max(0, valueMs);
+  if (safeValueMs < 1000) return `${Math.round(safeValueMs)} ms`;
+  if (safeValueMs < 10000) return `${(safeValueMs / 1000).toFixed(2)} 秒`;
+  if (safeValueMs < 60000) return `${(safeValueMs / 1000).toFixed(1)} 秒`;
+
+  const minutes = Math.floor(safeValueMs / 60000);
+  const seconds = ((safeValueMs % 60000) / 1000).toFixed(1);
+  return `${minutes} 分 ${seconds} 秒`;
+};
+
+const formatClockTime = (isoValue: string | null | undefined) => {
+  if (!isoValue) return "尚未產生";
+
+  return new Intl.DateTimeFormat("zh-TW", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).format(new Date(isoValue));
+};
+
+const getStarModeLabel = (mode: StarMode) =>
+  mode === 5 ? "五芒星" : "六芒星";
+
+const getSearchStrategyLabel = ({
+  searchStrategy,
+  hexCellRadiusKm
+}: {
+  searchStrategy: SearchStrategy;
+  hexCellRadiusKm: number;
+}) => (searchStrategy === "honeycomb" ? `蜂巢 ${hexCellRadiusKm} km` : "角度");
+
+const formatDrawSummaryProgressLabel = (summary: DrawSummary) =>
+  summary.resultCount > 0
+    ? `魔法陣完成 · ${summary.resultCount} 組 · ${formatElapsedMs(
+        summary.totalElapsedMs
+      )}`
+    : `計算完成 · 0 組 · ${formatElapsedMs(summary.totalElapsedMs)}`;
+
+const formatDrawSummaryStatus = (summary: DrawSummary) => {
+  const starLabel = getStarModeLabel(summary.mode);
+  const firstResultText =
+    summary.firstResultElapsedMs === null
+      ? "未產生第一個魔法陣"
+      : `${formatElapsedMs(summary.firstResultElapsedMs)}（${formatClockTime(
+          summary.firstResultAtIso
+        )}）`;
+  const resultText =
+    summary.resultCount > 0
+      ? `共找到 ${summary.resultCount} 組${starLabel}魔法陣`
+      : `未找到符合條件的${starLabel}魔法陣`;
+  const warningText =
+    summary.warningCount > 0 ? `；另有 ${summary.warningCount} 則提醒` : "";
+
+  return `${summary.sourceLabel}完成：首個 ${firstResultText}，總耗時 ${formatElapsedMs(
+    summary.totalElapsedMs
+  )}，${resultText}。候選點 ${summary.eligiblePoiCount}/${
+    summary.totalPoiCount
+  }，範圍 ${summary.radiusRangeLabel}，策略 ${getSearchStrategyLabel(
+    summary
+  )}${warningText}。`;
+};
 
 const mergePois = (currentPois: Poi[], nextPois: Poi[]) => {
   const byId = new Map(currentPois.map((poi) => [poi.id, poi]));
@@ -922,6 +1028,7 @@ function App() {
   const [isSearchDrawing, setIsSearchDrawing] = useState(false);
   const [calculationProgress, setCalculationProgress] =
     useState<CalculationProgress | null>(null);
+  const [drawSummary, setDrawSummary] = useState<DrawSummary | null>(null);
   const [mobileMapSplitPercent, setMobileMapSplitPercent] = useState(50);
   const [mobileSettingsSwipeOffsetPx, setMobileSettingsSwipeOffsetPx] =
     useState(0);
@@ -1007,6 +1114,7 @@ function App() {
       center,
       radiusMeters: outerRadiusMeters,
       innerRadiusMeters,
+      maxResults: MAX_STAR_RESULTS,
       angleToleranceDeg: effectiveAngleToleranceDeg,
       candidatesPerSlot,
       rotationStepDeg,
@@ -1234,6 +1342,94 @@ function App() {
         poi.distanceMeters >= innerRadiusMeters &&
         poi.distanceMeters <= outerRadiusMeters
     ).length;
+  const getEstimatedMagicAnimationMs = (result: StarResult | null) => {
+    if (!result) return null;
+
+    const strokes = makeMagicCircleStrokes(result, magicAnimationIndex);
+    return Math.round(
+      (getMagicTimelineDurationMs(result, strokes) +
+        MAGIC_TIMELINE_END_PADDING_MS) /
+        magicSpeedRef.current
+    );
+  };
+  const makeDrawSummary = ({
+    sourceLabel,
+    startedAtMs,
+    startedAtIso,
+    finishedAtMs,
+    firstResultElapsedMs,
+    firstResultAtIso,
+    firstResultSourceLabel,
+    searchElapsedMs = null,
+    solveElapsedMs,
+    previewSolveCount = 0,
+    previewSolveElapsedMs = 0,
+    renderElapsedMs,
+    nextResults,
+    nextPois,
+    nextCenter,
+    nextCenterLabel,
+    fetchedPoiCount = null,
+    addedPoiCount = null,
+    notes = [],
+    categoryCount = null
+  }: {
+    sourceLabel: string;
+    startedAtMs: number;
+    startedAtIso: string;
+    finishedAtMs: number;
+    firstResultElapsedMs: number | null;
+    firstResultAtIso: string | null;
+    firstResultSourceLabel: string | null;
+    searchElapsedMs?: number | null;
+    solveElapsedMs: number;
+    previewSolveCount?: number;
+    previewSolveElapsedMs?: number;
+    renderElapsedMs: number;
+    nextResults: StarResult[];
+    nextPois: Poi[];
+    nextCenter: LatLng;
+    nextCenterLabel: string;
+    fetchedPoiCount?: number | null;
+    addedPoiCount?: number | null;
+    notes?: string[];
+    categoryCount?: number | null;
+  }): DrawSummary => ({
+    id: `draw-${Date.now()}`,
+    sourceLabel,
+    startedAtIso,
+    finishedAtIso: new Date().toISOString(),
+    firstResultAtIso,
+    firstResultElapsedMs,
+    firstResultSourceLabel,
+    totalElapsedMs: finishedAtMs - startedAtMs,
+    searchElapsedMs,
+    solveElapsedMs,
+    previewSolveCount,
+    previewSolveElapsedMs,
+    renderElapsedMs,
+    estimatedAnimationMs: getEstimatedMagicAnimationMs(nextResults[0] ?? null),
+    resultCount: nextResults.length,
+    resultLimit: MAX_STAR_RESULTS,
+    eligiblePoiCount: countPoisInCurrentRange(nextPois),
+    totalPoiCount: nextPois.length,
+    fetchedPoiCount,
+    addedPoiCount,
+    warningCount: notes.length,
+    categoryCount,
+    mode: starMode,
+    centerLabel: nextCenterLabel,
+    centerCoordinate: formatCoordinate(nextCenter),
+    radiusRangeLabel,
+    searchStrategy,
+    angleToleranceDeg: effectiveAngleToleranceDeg,
+    candidatesPerSlot,
+    rotationStepDeg,
+    hexCellRadiusKm,
+    animationLabel: magicAnimationLabel,
+    magicSpeed: magicSpeedRef.current,
+    notes
+  });
   const clearProgressTimer = () => {
     if (progressClearTimerRef.current === null) return;
     window.clearTimeout(progressClearTimerRef.current);
@@ -2087,6 +2283,7 @@ function App() {
     const nextResults = solveStarFromPois(pois, solverParams);
     setResults(nextResults);
     setSelectedResultIndex(0);
+    setDrawSummary(null);
     if (nextResults.length === 0) {
       setStatus(
         `目前 ${countPoisInCurrentRange(pois)} 個範圍內候選點不足以形成穩定的星形。`
@@ -2122,23 +2319,50 @@ function App() {
   };
 
   const handleRecalculate = async () => {
+    const startedAtMs = getNowMs();
+    const startedAtIso = new Date().toISOString();
+    let solveElapsedMs = 0;
     setLoading(true);
     setError("");
+    setDrawSummary(null);
     setSelectedPoi(null);
     try {
       setProgressStep(12, "整理目前候選點");
       await waitForPaint();
       setProgressStep(64, "計算魔法陣組合");
       await waitForPaint();
+      const solveStartedAtMs = getNowMs();
       const nextResults = runSolver();
+      solveElapsedMs = getNowMs() - solveStartedAtMs;
       setProgressStep(
         nextResults.length > 0 ? 92 : 88,
         nextResults.length > 0 ? "繪製魔法陣" : "整理計算結果"
       );
+      const renderStartedAtMs = getNowMs();
       await waitForPaint();
-      completeProgress(
-        nextResults.length > 0 ? "魔法陣完成" : "計算完成，尚無可用星形"
-      );
+      const finishedAtMs = getNowMs();
+      const firstResultElapsedMs =
+        nextResults.length > 0 ? finishedAtMs - startedAtMs : null;
+      const firstResultAtIso =
+        nextResults.length > 0 ? new Date().toISOString() : null;
+      const summary = makeDrawSummary({
+        sourceLabel: "重新計算",
+        startedAtMs,
+        startedAtIso,
+        finishedAtMs,
+        firstResultElapsedMs,
+        firstResultAtIso,
+        firstResultSourceLabel: nextResults.length > 0 ? "最終計算" : null,
+        solveElapsedMs,
+        renderElapsedMs: finishedAtMs - renderStartedAtMs,
+        nextResults,
+        nextPois: pois,
+        nextCenter: center,
+        nextCenterLabel: centerName
+      });
+      setDrawSummary(summary);
+      setStatus(formatDrawSummaryStatus(summary));
+      completeProgress(formatDrawSummaryProgressLabel(summary));
     } catch (solveError) {
       resetProgress();
       setError(solveError instanceof Error ? solveError.message : "計算失敗。");
@@ -2211,11 +2435,28 @@ function App() {
       return;
     }
 
+    const startedAtMs = getNowMs();
+    const startedAtIso = new Date().toISOString();
+    let firstResultElapsedMs: number | null = null;
+    let firstResultAtIso: string | null = null;
+    let firstResultSourceLabel: string | null = null;
+    let previewSolveCount = 0;
+    let previewSolveElapsedMs = 0;
+    let solveElapsedMs = 0;
+    let searchElapsedMs: number | null = null;
+    const markFirstResult = (sourceLabel: string) => {
+      if (firstResultElapsedMs !== null) return;
+      firstResultElapsedMs = getNowMs() - startedAtMs;
+      firstResultAtIso = new Date().toISOString();
+      firstResultSourceLabel = sourceLabel;
+    };
+
     const searchController = new AbortController();
     searchAbortControllerRef.current = searchController;
     setIsSearchDrawing(true);
     setLoading(true);
     setError("");
+    setDrawSummary(null);
     setSelectedPoi(null);
     let latestMergedPois = pois;
     let hasDrawnFirstSearchResult = false;
@@ -2240,13 +2481,17 @@ function App() {
               34 + (progress.completedCategories / progress.totalCategories) * 32;
             let progressLabel = `${progress.category.label} 已搜索 ${progress.pois.length} 筆`;
             if (searchStrategy === "honeycomb" && !hasDrawnFirstSearchResult) {
+              const previewSolveStartedAtMs = getNowMs();
               const previewResults = solveStarFromPois(latestMergedPois, {
                 ...solverParams,
                 center: searchCenter.center,
                 maxResults: 1
               });
+              previewSolveCount += 1;
+              previewSolveElapsedMs += getNowMs() - previewSolveStartedAtMs;
               if (previewResults.length > 0) {
                 hasDrawnFirstSearchResult = true;
+                markFirstResult("蜂巢預覽");
                 setResults(previewResults);
                 setSelectedResultIndex(0);
                 progressLabel = `${progressLabel}，已先畫出第一個魔法陣，繼續搜索其他蜂巢`;
@@ -2261,12 +2506,18 @@ function App() {
       setPois(mergedPois);
       setProgressStep(68, `分析 ${mergedPois.length} 個候選點`);
       await waitForPaint();
+      const solveStartedAtMs = getNowMs();
+      searchElapsedMs = solveStartedAtMs - startedAtMs;
       const nextResults = runSolver(mergedPois, searchCenter.center);
+      solveElapsedMs = getNowMs() - solveStartedAtMs;
       setProgressStep(
         nextResults.length > 0 ? 92 : 88,
         nextResults.length > 0 ? "繪製魔法陣" : "整理計算結果"
       );
+      const renderStartedAtMs = getNowMs();
       await waitForPaint();
+      if (nextResults.length > 0) markFirstResult("最終計算");
+      const finishedAtMs = getNowMs();
       const notes = [...warnings];
 
       if (nextPois.length >= overpassResultLimit) {
@@ -2275,20 +2526,31 @@ function App() {
         );
       }
 
-      if (notes.length > 0) {
-        setStatus(
-          `${notes.join(" ")} 本次取得 ${nextPois.length} 筆資料，新增 ${addedPoiCount} 筆，累計 ${mergedPois.length} 筆${
-            nextResults.length > 0
-              ? `，仍找到 ${nextResults.length} 組${
-                  starMode === 5 ? "五芒星" : "六芒星"
-                }候選。`
-              : "，但尚未找到符合條件的星形。"
-          }`
-        );
-      }
-      completeProgress(
-        nextResults.length > 0 ? "魔法陣完成" : "計算完成，尚無可用星形"
-      );
+      const summary = makeDrawSummary({
+        sourceLabel: "搜尋繪製",
+        startedAtMs,
+        startedAtIso,
+        finishedAtMs,
+        firstResultElapsedMs,
+        firstResultAtIso,
+        firstResultSourceLabel,
+        searchElapsedMs,
+        solveElapsedMs,
+        previewSolveCount,
+        previewSolveElapsedMs,
+        renderElapsedMs: finishedAtMs - renderStartedAtMs,
+        nextResults,
+        nextPois: mergedPois,
+        nextCenter: searchCenter.center,
+        nextCenterLabel: searchCenter.label,
+        fetchedPoiCount: nextPois.length,
+        addedPoiCount,
+        notes,
+        categoryCount: selectedCategories.length
+      });
+      setDrawSummary(summary);
+      setStatus(formatDrawSummaryStatus(summary));
+      completeProgress(formatDrawSummaryProgressLabel(summary));
     } catch (fetchError) {
       if (fetchError instanceof Error && fetchError.name === "AbortError") {
         setStatus("已取消搜索。");
@@ -2995,6 +3257,124 @@ function App() {
             <Sparkles aria-hidden="true" />
             <h2>星形結果</h2>
           </div>
+          {drawSummary && (
+            <div className="draw-summary" aria-label="魔法陣繪製摘要">
+              <div className="draw-summary__head">
+                <strong>
+                  {drawSummary.resultCount > 0
+                    ? "最近一次魔法陣完成"
+                    : "最近一次計算完成"}
+                </strong>
+                <span>{formatClockTime(drawSummary.finishedAtIso)}</span>
+              </div>
+              <div className="draw-summary__metrics">
+                <ResultMetric
+                  label="首個魔法陣"
+                  value={formatElapsedMs(drawSummary.firstResultElapsedMs)}
+                />
+                <ResultMetric
+                  label="總耗時"
+                  value={formatElapsedMs(drawSummary.totalElapsedMs)}
+                />
+                <ResultMetric
+                  label="找到數量"
+                  value={`${drawSummary.resultCount} 組 / 上限 ${drawSummary.resultLimit}`}
+                />
+                <ResultMetric
+                  label="候選點"
+                  value={`${drawSummary.eligiblePoiCount} / ${drawSummary.totalPoiCount}`}
+                />
+                <ResultMetric
+                  label="搜尋下載"
+                  value={
+                    drawSummary.searchElapsedMs === null
+                      ? "不適用"
+                      : formatElapsedMs(drawSummary.searchElapsedMs)
+                  }
+                />
+                <ResultMetric
+                  label="最終計算"
+                  value={formatElapsedMs(drawSummary.solveElapsedMs)}
+                />
+                <ResultMetric
+                  label="預覽計算"
+                  value={
+                    drawSummary.previewSolveCount > 0
+                      ? `${drawSummary.previewSolveCount} 次 / ${formatElapsedMs(
+                          drawSummary.previewSolveElapsedMs
+                        )}`
+                      : "0 次"
+                  }
+                />
+                <ResultMetric
+                  label="地圖渲染"
+                  value={formatElapsedMs(drawSummary.renderElapsedMs)}
+                />
+                <ResultMetric
+                  label="動畫估計"
+                  value={formatElapsedMs(drawSummary.estimatedAnimationMs)}
+                />
+              </div>
+              <dl className="draw-summary__details">
+                <div>
+                  <dt>首個完成時間</dt>
+                  <dd>
+                    {formatClockTime(drawSummary.firstResultAtIso)}
+                    {drawSummary.firstResultSourceLabel
+                      ? ` · ${drawSummary.firstResultSourceLabel}`
+                      : ""}
+                  </dd>
+                </div>
+                <div>
+                  <dt>中心</dt>
+                  <dd>
+                    {drawSummary.centerLabel} · {drawSummary.centerCoordinate}
+                  </dd>
+                </div>
+                <div>
+                  <dt>範圍與模式</dt>
+                  <dd>
+                    {drawSummary.radiusRangeLabel} ·{" "}
+                    {getStarModeLabel(drawSummary.mode)} ·{" "}
+                    {getSearchStrategyLabel(drawSummary)}
+                  </dd>
+                </div>
+                <div>
+                  <dt>搜尋參數</dt>
+                  <dd>
+                    角度 ±{drawSummary.angleToleranceDeg.toFixed(0)}° · 每角{" "}
+                    {drawSummary.candidatesPerSlot} 點 · 旋轉步距{" "}
+                    {drawSummary.rotationStepDeg}°
+                  </dd>
+                </div>
+                <div>
+                  <dt>資料統計</dt>
+                  <dd>
+                    {drawSummary.fetchedPoiCount === null
+                      ? "使用目前點位"
+                      : `本次取得 ${drawSummary.fetchedPoiCount} 筆，新增 ${drawSummary.addedPoiCount} 筆`}
+                    {drawSummary.categoryCount === null
+                      ? ""
+                      : ` · 類別 ${drawSummary.categoryCount} 個`}
+                    {drawSummary.warningCount > 0
+                      ? ` · 提醒 ${drawSummary.warningCount} 則`
+                      : ""}
+                  </dd>
+                </div>
+                <div>
+                  <dt>動畫設定</dt>
+                  <dd>
+                    {drawSummary.animationLabel} · {drawSummary.magicSpeed}x
+                  </dd>
+                </div>
+              </dl>
+              {drawSummary.notes.length > 0 && (
+                <p className="draw-summary__notes">
+                  {drawSummary.notes.join(" ")}
+                </p>
+              )}
+            </div>
+          )}
           {results.length === 0 ? (
             <p className="muted">尚無結果。搜尋 POI 後會列出最佳組合。</p>
           ) : (
