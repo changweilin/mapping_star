@@ -647,7 +647,7 @@ a {
   flex-direction: column;
   gap: 6px;
   overscroll-behavior: contain;
-  touch-action: none;
+  touch-action: pan-y;
 }
 
 .select-wrap--compact {
@@ -1940,16 +1940,40 @@ a {
   }
 
   .magic-player {
-    grid-template-columns: 1fr;
-    align-items: stretch;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: end;
+    gap: 6px;
+    padding: 8px;
   }
 
   .magic-player-controls {
+    gap: 6px;
     justify-self: start;
   }
 
   .magic-player-fields {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .magic-control-button {
+    width: 34px;
+    height: 34px;
+  }
+
+  .magic-control-button--primary {
+    width: 36px;
+  }
+
+  .select-wrap--compact select {
+    height: 32px;
+    padding: 0 6px;
+  }
+
+  .select-marquee {
+    right: 20px;
+    left: 6px;
+    font-size: 12px;
   }
 
   .result-row {

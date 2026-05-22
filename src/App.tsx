@@ -83,6 +83,9 @@ const MAGIC_POINT_DELAY_MS = 1880;
 const MAGIC_POINT_STEP_MS = 90;
 const MAGIC_POINT_DURATION_MS = 520;
 const MAGIC_TIMELINE_END_PADDING_MS = 140;
+const MAGIC_SELECT_LONG_PRESS_MS = 360;
+const MAGIC_SELECT_SCROLL_CANCEL_PX = 10;
+const MAGIC_SELECT_TOUCH_STEP_PX = 26;
 const MAGIC_PLAYBACK_MODES = [
   { id: "single", label: "單曲播放" },
   { id: "continuous", label: "連續播放" },
@@ -94,6 +97,15 @@ type RadiusHandle = "inner" | "outer";
 type MagicPlayback = "playing" | "paused" | "ended";
 type MagicPlaybackDirection = "forward" | "reverse";
 type MagicSymbolStroke = Extract<MagicCircleStroke, { kind: "symbol" }>;
+type MagicSelectTouchState = {
+  startY: number;
+  lastStepY: number;
+  isLongPressActive: boolean;
+  timerId: number | null;
+};
+type MagicSelectTouchRef = {
+  current: MagicSelectTouchState | null;
+};
 type CalculationProgress = {
   label: string;
   percent: number;
@@ -148,6 +160,7 @@ type MarqueeSelectProps = {
   valueLabel: string;
   children: ReactNode;
   onChange: (value: string) => void;
+  onTouchCancel?: (event: TouchEvent<HTMLElement>) => void;
   onTouchEnd?: (event: TouchEvent<HTMLElement>) => void;
   onTouchMove?: (event: TouchEvent<HTMLElement>) => void;
   onTouchStart?: (event: TouchEvent<HTMLElement>) => void;
@@ -160,6 +173,7 @@ const MarqueeSelect = ({
   valueLabel,
   children,
   onChange,
+  onTouchCancel,
   onTouchEnd,
   onTouchMove,
   onTouchStart,
@@ -180,13 +194,9 @@ const MarqueeSelect = ({
     };
 
     root.addEventListener("wheel", preventNativeScroll, { passive: false });
-    root.addEventListener("touchmove", preventNativeScroll, {
-      passive: false
-    });
 
     return () => {
       root.removeEventListener("wheel", preventNativeScroll);
-      root.removeEventListener("touchmove", preventNativeScroll);
     };
   }, []);
 
@@ -228,6 +238,7 @@ const MarqueeSelect = ({
     <label
       className={className}
       ref={rootRef}
+      onTouchCancel={onTouchCancel}
       onTouchEnd={onTouchEnd}
       onTouchMove={onTouchMove}
       onTouchStart={onTouchStart}
@@ -866,9 +877,9 @@ function App() {
   const magicPlaybackStartedAtRef = useRef<number | null>(null);
   const magicTimelineDurationMsRef = useRef(0);
   const magicTimelinePositionMsRef = useRef(0);
-  const magicPlaybackModeTouchYRef = useRef<number | null>(null);
-  const magicAnimationTouchYRef = useRef<number | null>(null);
-  const magicSpeedTouchYRef = useRef<number | null>(null);
+  const magicPlaybackModeTouchRef = useRef<MagicSelectTouchState | null>(null);
+  const magicAnimationTouchRef = useRef<MagicSelectTouchState | null>(null);
+  const magicSpeedTouchRef = useRef<MagicSelectTouchState | null>(null);
   const [loading, setLoading] = useState(false);
   const [calculationProgress, setCalculationProgress] =
     useState<CalculationProgress | null>(null);
@@ -1216,8 +1227,79 @@ function App() {
     event.preventDefault();
     event.stopPropagation();
   };
-  const stopMagicSelectTouch = (event: TouchEvent<HTMLElement>) => {
-    event.stopPropagation();
+  const clearMagicSelectTouch = (touchRef: MagicSelectTouchRef) => {
+    const state = touchRef.current;
+    if (state && state.timerId !== null) {
+      window.clearTimeout(state.timerId);
+    }
+    touchRef.current = null;
+  };
+  const startMagicSelectTouch = (
+    event: TouchEvent<HTMLElement>,
+    touchRef: MagicSelectTouchRef
+  ) => {
+    const startY = event.touches[0]?.clientY;
+    if (startY === undefined) return;
+
+    clearMagicSelectTouch(touchRef);
+
+    const touchState: MagicSelectTouchState = {
+      startY,
+      lastStepY: startY,
+      isLongPressActive: false,
+      timerId: null
+    };
+
+    touchState.timerId = window.setTimeout(() => {
+      touchState.isLongPressActive = true;
+      touchState.lastStepY = touchState.startY;
+      touchState.timerId = null;
+    }, MAGIC_SELECT_LONG_PRESS_MS);
+
+    touchRef.current = touchState;
+  };
+  const moveMagicSelectTouch = (
+    event: TouchEvent<HTMLElement>,
+    touchRef: MagicSelectTouchRef,
+    stepOption: (step: number) => void
+  ) => {
+    const touchState = touchRef.current;
+    const currentY = event.touches[0]?.clientY;
+    if (!touchState || currentY === undefined) return;
+
+    if (!touchState.isLongPressActive) {
+      if (
+        Math.abs(currentY - touchState.startY) >=
+        MAGIC_SELECT_SCROLL_CANCEL_PX
+      ) {
+        clearMagicSelectTouch(touchRef);
+      }
+      return;
+    }
+
+    preventMagicSelectScroll(event);
+
+    const deltaY = currentY - touchState.lastStepY;
+    const stepCount = Math.trunc(
+      Math.abs(deltaY) / MAGIC_SELECT_TOUCH_STEP_PX
+    );
+    if (stepCount === 0) return;
+
+    stepOption(deltaY < 0 ? stepCount : -stepCount);
+    touchState.lastStepY = currentY;
+  };
+  const endMagicSelectTouch = (
+    event: TouchEvent<HTMLElement>,
+    touchRef: MagicSelectTouchRef
+  ) => {
+    const wasLongPressActive =
+      touchRef.current?.isLongPressActive ?? false;
+
+    clearMagicSelectTouch(touchRef);
+
+    if (wasLongPressActive) {
+      preventMagicSelectScroll(event);
+    }
   };
   const handleMagicPlaybackModeWheel = (event: WheelEvent<HTMLElement>) => {
     preventMagicSelectScroll(event);
@@ -1234,52 +1316,48 @@ function App() {
   const handleMagicPlaybackModeTouchStart = (
     event: TouchEvent<HTMLElement>
   ) => {
-    stopMagicSelectTouch(event);
-    magicPlaybackModeTouchYRef.current = event.touches[0]?.clientY ?? null;
+    startMagicSelectTouch(event, magicPlaybackModeTouchRef);
   };
   const handleMagicAnimationTouchStart = (event: TouchEvent<HTMLElement>) => {
-    stopMagicSelectTouch(event);
-    magicAnimationTouchYRef.current = event.touches[0]?.clientY ?? null;
+    startMagicSelectTouch(event, magicAnimationTouchRef);
   };
   const handleMagicSpeedTouchStart = (event: TouchEvent<HTMLElement>) => {
-    stopMagicSelectTouch(event);
-    magicSpeedTouchYRef.current = event.touches[0]?.clientY ?? null;
+    startMagicSelectTouch(event, magicSpeedTouchRef);
   };
-  const handleMagicSelectTouchMove = (event: TouchEvent<HTMLElement>) => {
-    preventMagicSelectScroll(event);
+  const handleMagicPlaybackModeTouchMove = (
+    event: TouchEvent<HTMLElement>
+  ) => {
+    moveMagicSelectTouch(
+      event,
+      magicPlaybackModeTouchRef,
+      stepMagicPlaybackMode
+    );
+  };
+  const handleMagicAnimationTouchMove = (event: TouchEvent<HTMLElement>) => {
+    moveMagicSelectTouch(event, magicAnimationTouchRef, stepMagicAnimation);
+  };
+  const handleMagicSpeedTouchMove = (event: TouchEvent<HTMLElement>) => {
+    moveMagicSelectTouch(event, magicSpeedTouchRef, stepMagicSpeed);
   };
   const handleMagicPlaybackModeTouchEnd = (event: TouchEvent<HTMLElement>) => {
-    stopMagicSelectTouch(event);
-    const startY = magicPlaybackModeTouchYRef.current;
-    magicPlaybackModeTouchYRef.current = null;
-    if (startY === null) return;
-
-    const deltaY = (event.changedTouches[0]?.clientY ?? startY) - startY;
-    if (Math.abs(deltaY) < 18) return;
-    preventMagicSelectScroll(event);
-    stepMagicPlaybackMode(deltaY < 0 ? 1 : -1);
+    endMagicSelectTouch(event, magicPlaybackModeTouchRef);
   };
   const handleMagicAnimationTouchEnd = (event: TouchEvent<HTMLElement>) => {
-    stopMagicSelectTouch(event);
-    const startY = magicAnimationTouchYRef.current;
-    magicAnimationTouchYRef.current = null;
-    if (startY === null) return;
-
-    const deltaY = (event.changedTouches[0]?.clientY ?? startY) - startY;
-    if (Math.abs(deltaY) < 18) return;
-    preventMagicSelectScroll(event);
-    stepMagicAnimation(deltaY < 0 ? 1 : -1);
+    endMagicSelectTouch(event, magicAnimationTouchRef);
   };
   const handleMagicSpeedTouchEnd = (event: TouchEvent<HTMLElement>) => {
-    stopMagicSelectTouch(event);
-    const startY = magicSpeedTouchYRef.current;
-    magicSpeedTouchYRef.current = null;
-    if (startY === null) return;
-
-    const deltaY = (event.changedTouches[0]?.clientY ?? startY) - startY;
-    if (Math.abs(deltaY) < 18) return;
-    preventMagicSelectScroll(event);
-    stepMagicSpeed(deltaY < 0 ? 1 : -1);
+    endMagicSelectTouch(event, magicSpeedTouchRef);
+  };
+  const handleMagicPlaybackModeTouchCancel = (
+    event: TouchEvent<HTMLElement>
+  ) => {
+    endMagicSelectTouch(event, magicPlaybackModeTouchRef);
+  };
+  const handleMagicAnimationTouchCancel = (event: TouchEvent<HTMLElement>) => {
+    endMagicSelectTouch(event, magicAnimationTouchRef);
+  };
+  const handleMagicSpeedTouchCancel = (event: TouchEvent<HTMLElement>) => {
+    endMagicSelectTouch(event, magicSpeedTouchRef);
   };
   const fitMapToResult = (result: StarResult) => {
     mapRef.current?.fitBounds(makeStarBounds(result).pad(0.08), {
@@ -2122,8 +2200,9 @@ function App() {
               onChange={(value) =>
                 handleMagicPlaybackModeChange(value as MagicPlaybackMode)
               }
+              onTouchCancel={handleMagicPlaybackModeTouchCancel}
               onTouchEnd={handleMagicPlaybackModeTouchEnd}
-              onTouchMove={handleMagicSelectTouchMove}
+              onTouchMove={handleMagicPlaybackModeTouchMove}
               onTouchStart={handleMagicPlaybackModeTouchStart}
               onWheel={handleMagicPlaybackModeWheel}
             >
@@ -2140,8 +2219,9 @@ function App() {
               onChange={(value) =>
                 handleMagicSpeedChange(parseMagicSpeed(value))
               }
+              onTouchCancel={handleMagicSpeedTouchCancel}
               onTouchEnd={handleMagicSpeedTouchEnd}
-              onTouchMove={handleMagicSelectTouchMove}
+              onTouchMove={handleMagicSpeedTouchMove}
               onTouchStart={handleMagicSpeedTouchStart}
               onWheel={handleMagicSpeedWheel}
             >
@@ -2156,8 +2236,9 @@ function App() {
               value={magicAnimationIndex}
               valueLabel={magicAnimationLabel}
               onChange={(value) => handleMagicAnimationChange(Number(value))}
+              onTouchCancel={handleMagicAnimationTouchCancel}
               onTouchEnd={handleMagicAnimationTouchEnd}
-              onTouchMove={handleMagicSelectTouchMove}
+              onTouchMove={handleMagicAnimationTouchMove}
               onTouchStart={handleMagicAnimationTouchStart}
               onWheel={handleMagicAnimationWheel}
             >
