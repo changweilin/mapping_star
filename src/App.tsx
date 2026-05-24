@@ -60,7 +60,7 @@ import {
   overpassResultLimit,
   type OverpassBounds
 } from "./lib/overpass";
-import { searchPlace } from "./lib/placeSearch";
+import { searchPlaces } from "./lib/placeSearch";
 import {
   DEFAULT_APP_SETTINGS,
   loadSettings,
@@ -76,6 +76,7 @@ import { makeAutomaticStarName } from "./lib/starNaming";
 import type {
   FavoriteItem,
   LatLng,
+  PlaceSearchResult,
   Poi,
   SearchStrategy,
   StarMode,
@@ -115,6 +116,8 @@ const MAGIC_TIMELINE_END_PADDING_MS = 140;
 const MAGIC_SELECT_LONG_PRESS_MS = 360;
 const MAGIC_SELECT_SCROLL_CANCEL_PX = 10;
 const MAGIC_SELECT_TOUCH_STEP_PX = 26;
+const MOBILE_SPLITTER_DOUBLE_TAP_MS = 320;
+const MOBILE_SPLITTER_DOUBLE_TAP_PX = 14;
 const MAGIC_PLAYBACK_MODES = [
   { id: "single", label: "單曲播放" },
   { id: "continuous", label: "連續播放" },
@@ -170,6 +173,12 @@ type MagicSelectScrollLockState = {
   bodyOverflow: string;
   bodyTouchAction: string;
   htmlOverflow: string;
+};
+type MobileSplitterTapState = {
+  atMs: number;
+  pointerType: string;
+  x: number;
+  y: number;
 };
 type CalculationProgress = {
   label: string;
@@ -1578,6 +1587,7 @@ function App() {
   const appHeaderRef = useRef<HTMLElement | null>(null);
   const sidebarRef = useRef<HTMLElement | null>(null);
   const magicPlayerRef = useRef<HTMLElement | null>(null);
+  const magicDrawActionsRef = useRef<HTMLElement | null>(null);
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
@@ -1602,6 +1612,13 @@ function App() {
       formatCoordinate(initialLastStar?.center ?? DEFAULT_CENTER)
   );
   const [searchText, setSearchText] = useState("");
+  const [placeCandidates, setPlaceCandidates] = useState<PlaceSearchResult[]>(
+    []
+  );
+  const [placeCandidateQuery, setPlaceCandidateQuery] = useState("");
+  const [selectedPlaceCandidateId, setSelectedPlaceCandidateId] = useState<
+    string | null
+  >(null);
   const [innerRadiusKm, setInnerRadiusKm] = useState(
     initialSettings.innerRadiusKm
   );
@@ -1682,6 +1699,8 @@ function App() {
   const magicSelectScrollLockRef =
     useRef<MagicSelectScrollLockState | null>(null);
   const mobileSplitDraggingRef = useRef(false);
+  const mobileSplitterTapRef = useRef<MobileSplitterTapState | null>(null);
+  const mobileSplitterSnapAtRef = useRef(0);
   const mobileSettingsSwipeRef = useRef<MobileSettingsSwipeState | null>(null);
   const searchAbortControllerRef = useRef<AbortController | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1743,6 +1762,9 @@ function App() {
     MAP_LAYER_OPTIONS.find((option) => option.id === mapLayer) ??
     MAP_LAYER_OPTIONS[0];
   const CurrentMapLayerIcon = currentMapLayerOption.Icon;
+  const trimmedSearchText = searchText.trim();
+  const shouldShowPlaceCandidates =
+    placeCandidates.length > 0 && placeCandidateQuery === trimmedSearchText;
   const searchDrawButtonLabel = isSearchDrawing ? "取消搜索" : "搜索繪製";
   const isSearchSettingsLocked = isSearchDrawing;
   const areFavoritesLocked = isSearchDrawing;
@@ -1871,6 +1893,42 @@ function App() {
   const handleOuterRadiusChange = (value: number) => {
     setOuterRadiusKm(Math.min(30, Math.max(value, innerRadiusKm + 1)));
   };
+  const focusPlaceCandidate = (candidate: PlaceSearchResult) => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    map.setView(
+      [candidate.center.lat, candidate.center.lng],
+      Math.max(map.getZoom(), 15)
+    );
+  };
+  const setCenterFromPlaceCandidate = (candidate: PlaceSearchResult) => {
+    setCenter(candidate.center);
+    setCenterName(candidate.label);
+    setSelectedPlaceCandidateId(candidate.id);
+    focusPlaceCandidate(candidate);
+  };
+  const handleSearchTextChange = (value: string) => {
+    setSearchText(value);
+    const nextTrimmedValue = value.trim();
+    if (nextTrimmedValue !== placeCandidateQuery) {
+      setSelectedPlaceCandidateId(null);
+    }
+    if (!nextTrimmedValue) {
+      setPlaceCandidates([]);
+      setPlaceCandidateQuery("");
+    }
+  };
+  const handleGoToPlaceCandidate = (candidate: PlaceSearchResult) => {
+    focusPlaceCandidate(candidate);
+    setStatus(`已前往 ${candidate.label}，尚未變更中心。`);
+    setError("");
+  };
+  const handleSetPlaceCandidate = (candidate: PlaceSearchResult) => {
+    setCenterFromPlaceCandidate(candidate);
+    setStatus(`中心已設置為 ${candidate.label}。`);
+    setError("");
+  };
   const handleMapLayerCycle = () => {
     const currentIndex = Math.max(
       0,
@@ -1949,15 +2007,55 @@ function App() {
       shellHeight - splitterHeight - playerHeight - sidebarVerticalPadding;
     const min = (minMapHeight / shellHeight) * 100;
     const max = (Math.max(minMapHeight, maxMapHeight) / shellHeight) * 100;
+    const clampedMin = Math.max(0, Math.min(90, min));
 
     return {
-      min: Math.max(8, Math.min(90, min)),
-      max: Math.max(min, Math.min(96, max))
+      min: clampedMin,
+      max: Math.max(clampedMin, Math.min(96, max))
     };
   };
-  const clampMobileSplitPercent = (value: number) => {
-    const bounds = getMobileSplitBounds();
+  const clampMobileSplitPercent = (
+    value: number,
+    bounds = getMobileSplitBounds()
+  ) => {
     return Math.min(bounds.max, Math.max(bounds.min, value));
+  };
+  const getMobileSearchDrawSplitPercent = (
+    bounds = getMobileSplitBounds()
+  ) => {
+    const shell = appShellRef.current;
+    const sidebar = sidebarRef.current;
+    const searchDrawActions = magicDrawActionsRef.current;
+    if (!shell || !sidebar || !searchDrawActions) {
+      return clampMobileSplitPercent(50, bounds);
+    }
+
+    const shellRect = shell.getBoundingClientRect();
+    const sidebarRect = sidebar.getBoundingClientRect();
+    const actionsRect = searchDrawActions.getBoundingClientRect();
+    const splitterHeight =
+      shell.querySelector(".mobile-splitter")?.getBoundingClientRect().height ??
+      12;
+    const settingsHeightToActions = actionsRect.bottom - sidebarRect.top;
+    const mapHeight =
+      shellRect.height - splitterHeight - settingsHeightToActions;
+    if (shellRect.height <= 0 || mapHeight <= 0) {
+      return clampMobileSplitPercent(50, bounds);
+    }
+
+    return clampMobileSplitPercent((mapHeight / shellRect.height) * 100, bounds);
+  };
+  const snapMobileSplitter = () => {
+    const bounds = getMobileSplitBounds();
+    const topRowTarget = bounds.min;
+    const searchDrawTarget = Math.max(
+      topRowTarget,
+      getMobileSearchDrawSplitPercent(bounds)
+    );
+    const midpoint = topRowTarget + (searchDrawTarget - topRowTarget) / 2;
+    setMobileMapSplitPercent((current) =>
+      current <= midpoint ? searchDrawTarget : topRowTarget
+    );
   };
   const updateMobileSplitFromPointer = (clientY: number) => {
     const shell = appShellRef.current;
@@ -1973,6 +2071,31 @@ function App() {
     event: PointerEvent<HTMLDivElement>
   ) => {
     event.preventDefault();
+    const now = Date.now();
+    const lastTap = mobileSplitterTapRef.current;
+    const isDoubleTap =
+      lastTap !== null &&
+      now - lastTap.atMs <= MOBILE_SPLITTER_DOUBLE_TAP_MS &&
+      lastTap.pointerType === event.pointerType &&
+      Math.abs(lastTap.x - event.clientX) <= MOBILE_SPLITTER_DOUBLE_TAP_PX &&
+      Math.abs(lastTap.y - event.clientY) <= MOBILE_SPLITTER_DOUBLE_TAP_PX;
+
+    mobileSplitterTapRef.current = isDoubleTap
+      ? null
+      : {
+          atMs: now,
+          pointerType: event.pointerType,
+          x: event.clientX,
+          y: event.clientY
+        };
+
+    if (isDoubleTap) {
+      mobileSplitDraggingRef.current = false;
+      mobileSplitterSnapAtRef.current = now;
+      snapMobileSplitter();
+      return;
+    }
+
     mobileSplitDraggingRef.current = true;
     event.currentTarget.setPointerCapture(event.pointerId);
     updateMobileSplitFromPointer(event.clientY);
@@ -1982,6 +2105,14 @@ function App() {
   ) => {
     if (!mobileSplitDraggingRef.current) return;
     event.preventDefault();
+    const tapState = mobileSplitterTapRef.current;
+    if (
+      tapState &&
+      (Math.abs(tapState.x - event.clientX) > MOBILE_SPLITTER_DOUBLE_TAP_PX ||
+        Math.abs(tapState.y - event.clientY) > MOBILE_SPLITTER_DOUBLE_TAP_PX)
+    ) {
+      mobileSplitterTapRef.current = null;
+    }
     updateMobileSplitFromPointer(event.clientY);
   };
   const handleMobileSplitterPointerUp = (
@@ -1996,20 +2127,30 @@ function App() {
     event: KeyboardEvent<HTMLDivElement>
   ) => {
     const bounds = getMobileSplitBounds();
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      snapMobileSplitter();
+      return;
+    }
+
     const keyActions: Record<string, number> = {
       ArrowUp: mobileMapSplitPercent - 5,
       ArrowLeft: mobileMapSplitPercent - 5,
       ArrowDown: mobileMapSplitPercent + 5,
       ArrowRight: mobileMapSplitPercent + 5,
       Home: bounds.min,
-      End: bounds.max,
-      Enter: 50,
-      " ": 50
+      End: bounds.max
     };
 
     if (!(event.key in keyActions)) return;
     event.preventDefault();
     setMobileMapSplitPercent(clampMobileSplitPercent(keyActions[event.key]));
+  };
+  const handleMobileSplitterDoubleClick = () => {
+    const now = Date.now();
+    if (now - mobileSplitterSnapAtRef.current < 350) return;
+    mobileSplitterSnapAtRef.current = now;
+    snapMobileSplitter();
   };
   const switchMobileSettingsTab = (direction: 1 | -1) => {
     const currentIndex = MOBILE_SETTINGS_TABS.findIndex(
@@ -3250,16 +3391,29 @@ function App() {
   };
 
   const resolveSearchCenter = async (requireInput: boolean) => {
-    const trimmedSearchText = searchText.trim();
-    if (!trimmedSearchText) {
+    const searchValue = searchText.trim();
+    if (!searchValue) {
       if (requireInput) throw new Error("請輸入地標、地址或座標。");
       return { center, label: centerName, searched: false };
     }
 
-    const result = await searchPlace(trimmedSearchText);
-    setCenter(result.center);
-    setCenterName(result.label);
-    mapRef.current?.setView([result.center.lat, result.center.lng], 12);
+    const selectedCandidate =
+      placeCandidateQuery === searchValue && selectedPlaceCandidateId
+        ? placeCandidates.find(
+            (candidate) => candidate.id === selectedPlaceCandidateId
+          ) ?? null
+        : null;
+    const nextCandidates = selectedCandidate
+      ? placeCandidates
+      : await searchPlaces(searchValue);
+    const result = selectedCandidate ?? nextCandidates[0];
+    if (!result) throw new Error("找不到這個地點，請換個名稱或輸入座標。");
+    if (!selectedCandidate) {
+      setPlaceCandidates(nextCandidates);
+      setPlaceCandidateQuery(searchValue);
+      setSelectedPlaceCandidateId(result.id);
+    }
+    setCenterFromPlaceCandidate(result);
     return { ...result, searched: true };
   };
 
@@ -3267,8 +3421,13 @@ function App() {
     setLoading(true);
     setError("");
     try {
-      const result = await resolveSearchCenter(true);
-      setStatus(`中心已移至 ${result.label}。`);
+      const candidates = await searchPlaces(searchText);
+      setPlaceCandidates(candidates);
+      setPlaceCandidateQuery(searchText.trim());
+      setSelectedPlaceCandidateId(null);
+      setStatus(
+        `找到 ${candidates.length} 個候選地點，請選擇前往或設置中心。`
+      );
     } catch (searchError) {
       setError(searchError instanceof Error ? searchError.message : "搜尋失敗。");
     } finally {
@@ -4008,7 +4167,11 @@ function App() {
           </div>
         </section>
 
-        <section className="magic-draw-actions" aria-label="搜索繪製與星形模式">
+        <section
+          className="magic-draw-actions"
+          ref={magicDrawActionsRef}
+          aria-label="搜索繪製與星形模式"
+        >
           <button
             className="primary-button search-draw-button"
             type="button"
@@ -4061,7 +4224,9 @@ function App() {
                 aria-label="地標、地址或座標"
                 value={searchText}
                 disabled={isSearchSettingsLocked}
-                onChange={(event) => setSearchText(event.target.value)}
+                onChange={(event) =>
+                  handleSearchTextChange(event.target.value)
+                }
                 onKeyDown={(event) => {
                   if (event.key === "Enter") void handleSearchPlace();
                 }}
@@ -4078,6 +4243,50 @@ function App() {
               <Search size={18} />
             </button>
           </div>
+          {shouldShowPlaceCandidates && (
+            <div className="place-candidate-list" aria-label="候選地點">
+              {placeCandidates.map((candidate, index) => {
+                const isSelected = selectedPlaceCandidateId === candidate.id;
+
+                return (
+                  <article
+                    className={`place-candidate ${
+                      isSelected ? "place-candidate--selected" : ""
+                    }`}
+                    key={`${candidate.id}-${index}`}
+                  >
+                    <div className="place-candidate__body">
+                      <strong>{candidate.label}</strong>
+                      {candidate.detail && <span>{candidate.detail}</span>}
+                      <small>{formatCoordinate(candidate.center)}</small>
+                    </div>
+                    <div className="place-candidate__actions">
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        title={`前往 ${candidate.label}`}
+                        onClick={() => handleGoToPlaceCandidate(candidate)}
+                        disabled={isSearchSettingsLocked}
+                      >
+                        <LocateFixed size={16} />
+                        <span>前往地點</span>
+                      </button>
+                      <button
+                        className="primary-button"
+                        type="button"
+                        title={`前往並設置 ${candidate.label}`}
+                        onClick={() => handleSetPlaceCandidate(candidate)}
+                        disabled={isSearchSettingsLocked}
+                      >
+                        <MapPin size={16} />
+                        <span>前往並設置</span>
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
           <p className="coordinate">
             {formatCoordinate(center)}
           </p>
@@ -4755,8 +4964,8 @@ function App() {
         className="mobile-splitter"
         role="separator"
         tabIndex={0}
-        title="拖曳調整地圖與設定比例，雙擊回到 50:50"
-        onDoubleClick={() => setMobileMapSplitPercent(50)}
+        title="拖曳調整地圖與設定比例，雙擊切換最上列與搜索繪圖"
+        onDoubleClick={handleMobileSplitterDoubleClick}
         onKeyDown={handleMobileSplitterKeyDown}
         onPointerDown={handleMobileSplitterPointerDown}
         onPointerMove={handleMobileSplitterPointerMove}

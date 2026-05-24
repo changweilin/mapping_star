@@ -426,6 +426,72 @@ a {
   gap: 0;
 }
 
+.place-candidate-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(360px, 42vh);
+  min-width: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.place-candidate {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.place-candidate--selected {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(38, 63, 209, 0.12);
+}
+
+.place-candidate__body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.place-candidate__body strong,
+.place-candidate__body span,
+.place-candidate__body small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.place-candidate__body strong {
+  font-size: 14px;
+}
+
+.place-candidate__body span,
+.place-candidate__body small {
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.place-candidate__body small {
+  font-family: "Cascadia Mono", "Consolas", monospace;
+}
+
+.place-candidate__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.place-candidate__actions button {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .icon-button {
   display: inline-grid;
   place-items: center;
@@ -2718,6 +2784,10 @@ a {
 
   .search-row {
     grid-template-columns: minmax(0, 1fr) 38px;
+  }
+
+  .place-candidate__actions {
+    grid-template-columns: 1fr;
   }
 
   .magic-player {

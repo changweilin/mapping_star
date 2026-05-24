@@ -65,6 +65,8 @@ export interface FavoriteStar {
 export type FavoriteItem = FavoritePoi | FavoriteStar;
 
 export interface PlaceSearchResult {
+  id: string;
   center: LatLng;
   label: string;
+  detail?: string;
 }
