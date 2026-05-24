@@ -7,6 +7,7 @@ const OVERPASS_ENDPOINTS = [
   "https://overpass.private.coffee/api/interpreter"
 ];
 const MAX_OVERPASS_RESULTS = 1400;
+const MAX_OVERPASS_BBOX_RESULTS = 900;
 const OVERPASS_REQUEST_TIMEOUT_MS = 45000;
 const CATEGORY_QUERY_PAUSE_MS = 150;
 const TRANSIENT_OVERPASS_STATUS = new Set([408, 429, 500, 502, 503, 504]);
@@ -44,6 +45,22 @@ export interface FetchPoisProgress {
 export interface FetchPoisOptions {
   signal?: AbortSignal;
   onCategoryResult?: (progress: FetchPoisProgress) => void;
+}
+
+export interface OverpassBounds {
+  south: number;
+  west: number;
+  north: number;
+  east: number;
+}
+
+export interface FetchPoisForBoundsResult extends FetchPoisResult {
+  hitLimit: boolean;
+}
+
+export interface FetchPoisForBoundsOptions {
+  signal?: AbortSignal;
+  resultLimit?: number;
 }
 
 interface FetchCategoryElementsResult {
@@ -94,6 +111,8 @@ const buildAroundStatements = (
       (type) => `${type}(around:${radius},${lat},${lng})${filter};`
     )
   );
+
+const formatCoordinate = (value: number) => value.toFixed(6);
 
 const formatQueryStatements = (statements: string[], indent = "  ") =>
   statements.map((statement) => `${indent}${statement}`).join("\n");
@@ -148,6 +167,53 @@ export const buildOverpassQuery = (
     categories.flatMap((category) => category.overpassFilters),
     innerRadiusMeters
   );
+
+const normalizeBounds = (bounds: OverpassBounds): OverpassBounds => ({
+  south: Math.max(-90, Math.min(90, Math.min(bounds.south, bounds.north))),
+  north: Math.max(-90, Math.min(90, Math.max(bounds.south, bounds.north))),
+  west: Math.max(-180, Math.min(180, Math.min(bounds.west, bounds.east))),
+  east: Math.max(-180, Math.min(180, Math.max(bounds.west, bounds.east)))
+});
+
+const formatBbox = (bounds: OverpassBounds) => {
+  const normalized = normalizeBounds(bounds);
+  return [
+    normalized.south,
+    normalized.west,
+    normalized.north,
+    normalized.east
+  ]
+    .map(formatCoordinate)
+    .join(",");
+};
+
+const buildBboxStatements = (
+  boundsList: OverpassBounds[],
+  filters: string[]
+) =>
+  boundsList.flatMap((bounds) => {
+    const bbox = formatBbox(bounds);
+    return filters.map((filter) => `nwr${filter}(${bbox});`);
+  });
+
+export const buildOverpassBboxQuery = (
+  boundsList: OverpassBounds[],
+  categories: PoiCategory[],
+  resultLimit = MAX_OVERPASS_BBOX_RESULTS
+) => {
+  const filters = categories.flatMap((category) => category.overpassFilters);
+  const safeLimit = Math.max(
+    1,
+    Math.min(MAX_OVERPASS_RESULTS, Math.round(resultLimit))
+  );
+  const statements = buildBboxStatements(boundsList, filters);
+
+  return `[out:json][timeout:20];
+(
+${formatQueryStatements(statements)}
+);
+out center qt ${safeLimit};`;
+};
 
 export const parseOverpassElements = (
   elements: OverpassElement[],
@@ -327,6 +393,41 @@ const fetchOverpassElementsForFilters = (
     signal
   );
 
+const fetchOverpassElementsForBounds = (
+  boundsList: OverpassBounds[],
+  categories: PoiCategory[],
+  signal?: AbortSignal,
+  resultLimit = MAX_OVERPASS_BBOX_RESULTS
+) =>
+  fetchOverpassElements(
+    buildOverpassBboxQuery(boundsList, categories, resultLimit),
+    signal
+  );
+
+const fetchOverpassElementsForBoundsFilters = (
+  boundsList: OverpassBounds[],
+  filters: string[],
+  signal?: AbortSignal,
+  resultLimit = MAX_OVERPASS_BBOX_RESULTS
+) =>
+  fetchOverpassElements(
+    buildOverpassBboxQuery(
+      boundsList,
+      [
+        {
+          id: "bbox-filter",
+          label: "範圍條件",
+          description: "",
+          color: "#000000",
+          overpassFilters: filters,
+          matches: () => false
+        }
+      ],
+      resultLimit
+    ),
+    signal
+  );
+
 const fetchCategoryElements = async (
   center: LatLng,
   radiusMeters: number,
@@ -383,6 +484,67 @@ const fetchCategoryElements = async (
         failedFilters > 0
           ? [
               `${category.label} 的部分條件查詢失敗（${uniqueMessages(
+                failures
+              ).join("、")}），已使用成功取得的資料繼續。`
+            ]
+          : []
+    };
+  }
+};
+
+const fetchCategoryBoundsElements = async (
+  boundsList: OverpassBounds[],
+  category: PoiCategory,
+  signal?: AbortSignal,
+  resultLimit = MAX_OVERPASS_BBOX_RESULTS
+): Promise<FetchCategoryElementsResult> => {
+  try {
+    return {
+      elements: await fetchOverpassElementsForBounds(
+        boundsList,
+        [category],
+        signal,
+        resultLimit
+      ),
+      warnings: []
+    };
+  } catch (primaryError) {
+    if (category.overpassFilters.length <= 1) {
+      throw primaryError;
+    }
+
+    const elements: OverpassElement[] = [];
+    const failures: string[] = [];
+    let failedFilters = 0;
+
+    for (const filter of category.overpassFilters) {
+      try {
+        elements.push(
+          ...(await fetchOverpassElementsForBoundsFilters(
+            boundsList,
+            [filter],
+            signal,
+            resultLimit
+          ))
+        );
+      } catch (filterError) {
+        failedFilters += 1;
+        failures.push(...overpassFailureMessages(filterError));
+      }
+
+      await sleep(CATEGORY_QUERY_PAUSE_MS, signal);
+    }
+
+    if (failedFilters === category.overpassFilters.length) {
+      throw primaryError;
+    }
+
+    return {
+      elements,
+      warnings:
+        failedFilters > 0
+          ? [
+              `${category.label} 的部分蜂巢條件查詢失敗（${uniqueMessages(
                 failures
               ).join("、")}），已使用成功取得的資料繼續。`
             ]
@@ -490,6 +652,94 @@ export const fetchPoisDetailed = async (
       radiusMeters
     ),
     warnings
+  };
+};
+
+export const fetchPoisForBoundsDetailed = async (
+  center: LatLng,
+  boundsList: OverpassBounds[],
+  categories: PoiCategory[],
+  innerRadiusMeters = 0,
+  outerRadiusMeters = Number.POSITIVE_INFINITY,
+  options: FetchPoisForBoundsOptions = {}
+): Promise<FetchPoisForBoundsResult> => {
+  if (categories.length === 0) {
+    throw new Error("請至少選擇一種目標類別。");
+  }
+
+  const normalizedBounds = boundsList.map(normalizeBounds).filter(
+    (bounds) => bounds.north > bounds.south && bounds.east > bounds.west
+  );
+  if (normalizedBounds.length === 0) {
+    return { pois: [], warnings: [], hitLimit: false };
+  }
+
+  const { resultLimit = MAX_OVERPASS_BBOX_RESULTS, signal } = options;
+  const safeLimit = Math.max(
+    1,
+    Math.min(MAX_OVERPASS_RESULTS, Math.round(resultLimit))
+  );
+  let elements: OverpassElement[] = [];
+  const warnings: string[] = [];
+
+  try {
+    elements = await fetchOverpassElementsForBounds(
+      normalizedBounds,
+      categories,
+      signal,
+      safeLimit
+    );
+  } catch (primaryError) {
+    if (categories.length <= 1) {
+      throw primaryError;
+    }
+
+    const failures: string[] = [];
+    for (const category of categories) {
+      try {
+        const result = await fetchCategoryBoundsElements(
+          normalizedBounds,
+          category,
+          signal,
+          safeLimit
+        );
+        elements.push(...result.elements);
+        warnings.push(...result.warnings);
+      } catch (categoryError) {
+        failures.push(formatCategoryFailure(category, categoryError));
+      }
+
+      await sleep(CATEGORY_QUERY_PAUSE_MS, signal);
+    }
+
+    if (failures.length === categories.length) {
+      throw primaryError;
+    }
+
+    if (failures.length > 0) {
+      warnings.push(
+        `部分蜂巢類別查詢失敗，已使用成功取得的資料繼續：${failures.join(
+          "；"
+        )}。`
+      );
+    }
+  }
+
+  const hitLimit = elements.length >= safeLimit;
+  if (hitLimit) {
+    warnings.push(
+      `單批蜂巢已讀取前 ${safeLimit} 筆資料；背景精修會繼續搜索其他蜂巢。`
+    );
+  }
+
+  return {
+    pois: filterPoisByRadiusRange(
+      parseOverpassElements(elements, center, categories),
+      innerRadiusMeters,
+      outerRadiusMeters
+    ),
+    warnings,
+    hitLimit
   };
 };
 

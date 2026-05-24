@@ -54,7 +54,12 @@ import {
   type MagicCircleStroke,
   type MagicSpeed
 } from "./lib/magicCircle";
-import { fetchPoisDetailed, overpassResultLimit } from "./lib/overpass";
+import {
+  fetchPoisDetailed,
+  fetchPoisForBoundsDetailed,
+  overpassResultLimit,
+  type OverpassBounds
+} from "./lib/overpass";
 import { searchPlace } from "./lib/placeSearch";
 import {
   DEFAULT_APP_SETTINGS,
@@ -99,6 +104,9 @@ const MAX_RADIUS_KM = 30;
 const MAX_STAR_RESULTS = 50;
 const HONEYCOMB_PREVIEW_PRIORITY_RINGS = 2;
 const MAX_HONEYCOMB_PREVIEW_CELLS = 240;
+const HONEYCOMB_SEARCH_CELLS_PER_BATCH = 10;
+const HONEYCOMB_FAST_CANDIDATES_PER_SLOT = 4;
+const HONEYCOMB_BATCH_RESULT_LIMIT = 900;
 const SQRT_3 = Math.sqrt(3);
 const MAGIC_POINT_DELAY_MS = 1880;
 const MAGIC_POINT_STEP_MS = 90;
@@ -213,6 +221,11 @@ type HoneycombPreviewCell = {
   ring: number;
   center: LatLng;
   polygon: LatLng[];
+};
+type HoneycombSearchBatch = {
+  cells: HoneycombPreviewCell[];
+  isInitial: boolean;
+  label: string;
 };
 type CalculationRecord = {
   id: string;
@@ -1232,6 +1245,66 @@ const makeHoneycombPreviewCells = ({
 
   return cells;
 };
+
+const makeHoneycombSearchBatches = (
+  params: Parameters<typeof makeHoneycombPreviewCells>[0]
+): HoneycombSearchBatch[] => {
+  const cells = makeHoneycombPreviewCells(params);
+  const batches: HoneycombSearchBatch[] = [];
+  const firstBatchSize = Math.min(params.mode, cells.length);
+
+  if (firstBatchSize > 0) {
+    batches.push({
+      cells: cells.slice(0, firstBatchSize),
+      isInitial: true,
+      label: `首批 ${firstBatchSize} 個目標蜂巢`
+    });
+  }
+
+  for (
+    let offset = firstBatchSize;
+    offset < cells.length;
+    offset += HONEYCOMB_SEARCH_CELLS_PER_BATCH
+  ) {
+    const batchCells = cells.slice(
+      offset,
+      offset + HONEYCOMB_SEARCH_CELLS_PER_BATCH
+    );
+    batches.push({
+      cells: batchCells,
+      isInitial: false,
+      label: `背景蜂巢 ${offset + 1}-${offset + batchCells.length}`
+    });
+  }
+
+  return batches;
+};
+
+const getBoundsForPoints = (points: LatLng[]): OverpassBounds => {
+  const lats = points.map((point) => point.lat);
+  const lngs = points.map((point) => point.lng);
+  return {
+    south: Math.min(...lats),
+    west: Math.min(...lngs),
+    north: Math.max(...lats),
+    east: Math.max(...lngs)
+  };
+};
+
+const getHoneycombCellBounds = (cell: HoneycombPreviewCell) =>
+  getBoundsForPoints(cell.polygon);
+
+const filterPoisByHoneycombCells = (
+  pois: Poi[],
+  cellKeys: Set<string>,
+  cellRadiusMeters: number
+) =>
+  pois.filter((poi) => {
+    const point = makeHoneycombPlanarPoint(poi.distanceMeters, poi.bearingDeg);
+    return cellKeys.has(
+      getHoneycombCellKey(honeycombPointToCell(point, cellRadiusMeters))
+    );
+  });
 
 const ResultMetric = ({
   label,
@@ -3280,6 +3353,215 @@ function App() {
       await waitForPaint();
       setProgressStep(18, "準備搜尋範圍");
       await waitForPaint();
+
+      if (searchStrategy === "honeycomb") {
+        const honeycombSearchParams = {
+          mode: starMode,
+          center: searchCenter.center,
+          innerRadiusMeters,
+          outerRadiusMeters,
+          rotationStepDeg,
+          hexCellRadiusMeters: hexCellRadiusKm * 1000
+        };
+        const honeycombCellRadiusMeters = normalizeHoneycombCellRadius(
+          outerRadiusMeters,
+          hexCellRadiusKm * 1000
+        );
+        const honeycombBatches =
+          makeHoneycombSearchBatches(honeycombSearchParams);
+        const totalHoneycombCells = honeycombBatches.reduce(
+          (total, batch) => total + batch.cells.length,
+          0
+        );
+        const honeycombWarnings: string[] = [];
+        let fetchedPoiCount = 0;
+        let searchedHoneycombCellCount = 0;
+        let successfulHoneycombBatchCount = 0;
+
+        const runHoneycombPreviewSolve = (
+          isInitialBatch: boolean
+        ): "first" | "better" | null => {
+          const previewSolveStartedAtMs = getNowMs();
+          const previewResults = solveStarFromPois(latestMergedPois, {
+            ...solverParams,
+            center: searchCenter.center,
+            maxResults: 1,
+            candidatesPerSlot: Math.max(
+              1,
+              Math.min(candidatesPerSlot, HONEYCOMB_FAST_CANDIDATES_PER_SLOT)
+            ),
+            rotationStepDeg: isInitialBatch
+              ? 360 / starMode
+              : Math.max(rotationStepDeg, 6),
+            hexPriorityRings: 0
+          });
+          previewSolveCount += 1;
+          previewSolveElapsedMs += getNowMs() - previewSolveStartedAtMs;
+
+          const previewBest = previewResults[0];
+          if (
+            !previewBest ||
+            (bestDisplayedScore !== null &&
+              previewBest.score >= bestDisplayedScore - 0.000001)
+          ) {
+            return null;
+          }
+
+          const isFirstResult = bestDisplayedScore === null;
+          bestDisplayedScore = previewBest.score;
+          markFirstResult(
+            isInitialBatch ? "首批蜂巢" : "蜂巢背景精修"
+          );
+          setResults(previewResults);
+          setSelectedResultIndex(0);
+          showMagicFoundNotice(
+            previewBest,
+            isFirstResult ? "找到第一個魔法陣" : "找到分數更好的魔法陣",
+            previewResults.length
+          );
+          return isFirstResult ? "first" : "better";
+        };
+
+        setProgressStep(
+          28,
+          `準備 ${honeycombBatches.length} 批蜂巢搜索`
+        );
+        await waitForPaint();
+
+        for (const [batchIndex, batch] of honeycombBatches.entries()) {
+          if (searchController.signal.aborted) {
+            throw new DOMException("已取消搜索。", "AbortError");
+          }
+
+          setProgressStep(
+            interpolateProgress(34, 58, batchIndex, honeycombBatches.length),
+            `${batch.label}搜索中`
+          );
+
+          let progressLabel = `${batch.label}完成`;
+          try {
+            const cellKeys = new Set(batch.cells.map((cell) => cell.key));
+            const batchResult = await fetchPoisForBoundsDetailed(
+              searchCenter.center,
+              batch.cells.map(getHoneycombCellBounds),
+              selectedCategories,
+              innerRadiusMeters,
+              outerRadiusMeters,
+              {
+                signal: searchController.signal,
+                resultLimit: HONEYCOMB_BATCH_RESULT_LIMIT
+              }
+            );
+            const batchPois = filterPoisByHoneycombCells(
+              batchResult.pois,
+              cellKeys,
+              honeycombCellRadiusMeters
+            );
+            const previousPoiCount = latestMergedPois.length;
+            latestMergedPois = mergePois(latestMergedPois, batchPois);
+            const addedInBatch = latestMergedPois.length - previousPoiCount;
+            fetchedPoiCount += batchPois.length;
+            successfulHoneycombBatchCount += 1;
+            honeycombWarnings.push(...batchResult.warnings);
+            setPois(latestMergedPois);
+
+            const previewStatus = runHoneycombPreviewSolve(batch.isInitial);
+            progressLabel = `${batch.label}完成：新增 ${addedInBatch} 筆，累計 ${latestMergedPois.length} 筆`;
+            if (firstResultElapsedMs !== null) {
+              progressLabel += "，已繪製第一個魔法陣，背景精修中";
+            }
+            if (previewStatus === "better") {
+              progressLabel += "，找到更好的魔法陣";
+            }
+          } catch (batchError) {
+            if (
+              batchError instanceof Error &&
+              batchError.name === "AbortError"
+            ) {
+              throw batchError;
+            }
+            const message =
+              batchError instanceof Error ? batchError.message : "未知錯誤";
+            honeycombWarnings.push(`${batch.label}查詢失敗：${message}`);
+            progressLabel = `${batch.label}查詢失敗，繼續下一批蜂巢`;
+          }
+
+          searchedHoneycombCellCount += batch.cells.length;
+          setHoneycombCompletedTargetCount(searchedHoneycombCellCount);
+          setProgressStep(
+            interpolateProgress(
+              34,
+              58,
+              batchIndex + 1,
+              honeycombBatches.length
+            ),
+            `${progressLabel}（${searchedHoneycombCellCount}/${totalHoneycombCells} 蜂巢）`
+          );
+          await waitForPaint();
+        }
+
+        const mergedPois = latestMergedPois;
+        const addedPoiCount = mergedPois.length - pois.length;
+        setPois(mergedPois);
+        setProgressStep(
+          getAnalyzeProgressPercent(searchStrategy),
+          `整理 ${mergedPois.length} 個蜂巢候選點`
+        );
+        await waitForPaint();
+        const solveStartedAtMs = getNowMs();
+        searchElapsedMs = solveStartedAtMs - startedAtMs;
+        const progressiveResult = await runSolverProgressively({
+          nextPois: mergedPois,
+          nextCenter: searchCenter.center,
+          signal: searchController.signal,
+          initialBestScore: bestDisplayedScore,
+          onFirstResult: markFirstResult
+        });
+        const nextResults = progressiveResult.results;
+        solveElapsedMs = getNowMs() - solveStartedAtMs;
+        setProgressStep(
+          nextResults.length > 0 ? 92 : 88,
+          nextResults.length > 0 ? "繪製魔法陣" : "整理計算結果"
+        );
+        const renderStartedAtMs = getNowMs();
+        await waitForPaint();
+        if (nextResults.length > 0) markFirstResult("最終計算");
+        const finishedAtMs = getNowMs();
+        const notes = [...new Set(honeycombWarnings)];
+
+        notes.push(
+          `蜂巢批次搜索完成：成功 ${successfulHoneycombBatchCount}/${honeycombBatches.length} 批，已搜索 ${searchedHoneycombCellCount}/${totalHoneycombCells} 個蜂巢。`
+        );
+
+        const summary = makeDrawSummary({
+          sourceLabel: "搜尋繪製",
+          startedAtMs,
+          startedAtIso,
+          finishedAtMs,
+          firstResultElapsedMs,
+          firstResultAtIso,
+          firstResultSourceLabel,
+          searchElapsedMs,
+          solveElapsedMs,
+          previewSolveCount,
+          previewSolveElapsedMs,
+          renderElapsedMs: finishedAtMs - renderStartedAtMs,
+          nextResults,
+          nextPois: mergedPois,
+          nextCenter: searchCenter.center,
+          nextCenterLabel: searchCenter.label,
+          fetchedPoiCount,
+          addedPoiCount,
+          notes,
+          categoryCount: selectedCategories.length
+        });
+        addCalculationRecord(makeCalculationRecordFromSummary(summary));
+        setStatus(formatDrawSummaryStatus(summary));
+        showCompletionNotice(summary);
+        completeProgress(formatDrawSummaryProgressLabel(summary));
+        return;
+      }
+
       setProgressStep(34, "下載地點資料");
       const { pois: nextPois, warnings } = await fetchPoisDetailed(
         searchCenter.center,
@@ -3296,37 +3578,7 @@ function App() {
               progress.completedCategories,
               progress.totalCategories
             );
-            let progressLabel = `${progress.category.label} 已搜索 ${progress.pois.length} 筆`;
-            if (searchStrategy === "honeycomb") {
-              const previewSolveStartedAtMs = getNowMs();
-              const previewResults = solveStarFromPois(latestMergedPois, {
-                ...solverParams,
-                center: searchCenter.center,
-                maxResults: 1
-              });
-              previewSolveCount += 1;
-              previewSolveElapsedMs += getNowMs() - previewSolveStartedAtMs;
-              const previewBest = previewResults[0];
-              if (
-                previewBest &&
-                (bestDisplayedScore === null ||
-                  previewBest.score < bestDisplayedScore - 0.000001)
-              ) {
-                const isFirstResult = bestDisplayedScore === null;
-                bestDisplayedScore = previewBest.score;
-                markFirstResult("蜂巢預覽");
-                setResults(previewResults);
-                setSelectedResultIndex(0);
-                showMagicFoundNotice(
-                  previewBest,
-                  isFirstResult ? "找到第一個魔法陣" : "找到分數更好的魔法陣",
-                  previewResults.length
-                );
-                progressLabel = `${progressLabel}，${
-                  isFirstResult ? "已先畫出第一個魔法陣" : "找到更好的魔法陣"
-                }，繼續搜索其他蜂巢`;
-              }
-            }
+            const progressLabel = `${progress.category.label} 已搜索 ${progress.pois.length} 筆`;
             setProgressStep(progressPercent, progressLabel);
           }
         }
@@ -3336,9 +3588,7 @@ function App() {
       setPois(mergedPois);
       setProgressStep(
         getAnalyzeProgressPercent(searchStrategy),
-        searchStrategy === "honeycomb"
-          ? `整理 ${mergedPois.length} 個蜂巢候選點`
-          : `分析 ${mergedPois.length} 個候選點`
+        `分析 ${mergedPois.length} 個候選點`
       );
       await waitForPaint();
       const solveStartedAtMs = getNowMs();

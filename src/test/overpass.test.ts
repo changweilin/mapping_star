@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { POI_CATEGORIES, categoryById } from "../data/categories";
 import {
+  buildOverpassBboxQuery,
   buildOverpassQuery,
   fetchPois,
+  fetchPoisForBoundsDetailed,
   fetchPoisDetailed,
   parseOverpassElements
 } from "../lib/overpass";
@@ -53,6 +55,33 @@ describe("overpass helpers", () => {
 
     expect(query).toContain('["building"]["building:levels"]');
     expect(query).toContain('number(t["building:levels"]) >= 16');
+  });
+
+  it("builds a bbox query for honeycomb batches", () => {
+    const query = buildOverpassBboxQuery(
+      [
+        {
+          south: 24.9,
+          west: 120.9,
+          north: 25.1,
+          east: 121.1
+        },
+        {
+          south: 25.2,
+          west: 121.2,
+          north: 25.3,
+          east: 121.3
+        }
+      ],
+      [mustCategory("religion")],
+      800
+    );
+
+    expect(query).toContain("[timeout:20]");
+    expect(query).toContain("nwr");
+    expect(query).toContain("(24.900000,120.900000,25.100000,121.100000)");
+    expect(query).toContain("(25.200000,121.200000,25.300000,121.300000)");
+    expect(query).toContain("out center qt 800");
   });
 
   it("parses Overpass nodes and assigns categories", () => {
@@ -335,6 +364,50 @@ describe("overpass helpers", () => {
     );
 
     expect(pois.map((poi) => poi.name)).toEqual(["Ring temple"]);
+  });
+
+  it("fetches bbox batches and filters them to the requested radius range", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          elements: [
+            {
+              type: "node",
+              id: 1,
+              lat: 25,
+              lon: 121,
+              tags: {
+                name: "Inner temple",
+                amenity: "place_of_worship"
+              }
+            },
+            {
+              type: "node",
+              id: 2,
+              lat: 25.006,
+              lon: 121,
+              tags: {
+                name: "Batch temple",
+                amenity: "place_of_worship"
+              }
+            }
+          ]
+        }),
+        { status: 200 }
+      )
+    );
+
+    const result = await fetchPoisForBoundsDetailed(
+      { lat: 25, lng: 121 },
+      [{ south: 24.99, west: 120.99, north: 25.02, east: 121.02 }],
+      [mustCategory("religion")],
+      500,
+      1000
+    );
+
+    expect(String(fetchMock.mock.calls[0][1]?.body)).toContain("nwr");
+    expect(result.pois.map((poi) => poi.name)).toEqual(["Batch temple"]);
+    expect(result.hitLimit).toBe(false);
   });
 
   it("queries selected categories separately", async () => {
