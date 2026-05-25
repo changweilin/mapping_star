@@ -3971,6 +3971,17 @@ function App() {
     );
   };
 
+  const toggleStarFavorite = (star: StarResult) => {
+    const favoriteId = `star-${star.id}`;
+    if (isStarFavorite(star)) {
+      removeFavorite(favoriteId);
+      setStatus(`已從我的最愛移除：${getAutomaticNameForStar(star)}`);
+      return;
+    }
+
+    addStarFavorite(star);
+  };
+
   const exportStar = (result: StarResult, format: "gpx" | "kml") => {
     const namedResult = {
       ...result,
@@ -4631,6 +4642,8 @@ function App() {
                 {sortedResults.map((result, index) => {
                   const isActive = selectedResultIndex === index;
                   const isExpanded = expandedResultId === result.id;
+                  const starName = getAutomaticNameForStar(result);
+                  const isFavoritedStar = isStarFavorite(result);
 
                   return (
                     <article
@@ -4639,35 +4652,61 @@ function App() {
                       } ${isExpanded ? "expanded" : ""}`}
                       key={result.id}
                     >
-                      <button
-                        aria-expanded={isExpanded}
-                        className="result-row"
-                        type="button"
-                        onClick={() => handleResultToggle(result, index)}
-                      >
-                        <span className="result-row__heading">
-                          <strong>{getAutomaticNameForStar(result)}</strong>
-                          {isExpanded ? (
-                            <ChevronUp aria-hidden="true" size={16} />
-                          ) : (
-                            <ChevronDown aria-hidden="true" size={16} />
-                          )}
-                        </span>
-                        <span className="result-row__metrics">
-                          <span>
-                            半徑 {formatDistance(result.radiusMeanMeters)}
+                      <div className="result-row">
+                        <button
+                          aria-label={
+                            isFavoritedStar
+                              ? `取消收藏星形 ${starName}`
+                              : `收藏星形 ${starName}`
+                          }
+                          className={`result-favorite-button ${
+                            isFavoritedStar ? "active" : ""
+                          }`}
+                          type="button"
+                          title={
+                            isFavoritedStar ? "取消收藏星形" : "收藏星形"
+                          }
+                          onClick={() => toggleStarFavorite(result)}
+                          disabled={areFavoritesLocked}
+                        >
+                          <Star
+                            aria-hidden="true"
+                            fill={isFavoritedStar ? "currentColor" : "none"}
+                            size={17}
+                          />
+                        </button>
+                        <button
+                          aria-expanded={isExpanded}
+                          className="result-row__toggle"
+                          type="button"
+                          onClick={() => handleResultToggle(result, index)}
+                        >
+                          <span className="result-row__heading">
+                            <strong>{starName}</strong>
+                            {isExpanded ? (
+                              <ChevronUp aria-hidden="true" size={16} />
+                            ) : (
+                              <ChevronDown aria-hidden="true" size={16} />
+                            )}
                           </span>
-                          <span>角度 {formatDegrees(result.rotationDeg)}</span>
-                          <span>
-                            圓周誤差 {formatDistance(result.radiusStdMeters)}
+                          <span className="result-row__metrics">
+                            <span>
+                              半徑 {formatDistance(result.radiusMeanMeters)}
+                            </span>
+                            <span>
+                              角度 {formatDegrees(result.rotationDeg)}
+                            </span>
+                            <span>
+                              圓周誤差 {formatDistance(result.radiusStdMeters)}
+                            </span>
+                            <span>
+                              中心誤差{" "}
+                              {formatDistance(getStarCenterErrorMeters(result))}
+                            </span>
+                            <span>分數 {result.score.toFixed(3)}</span>
                           </span>
-                          <span>
-                            中心誤差{" "}
-                            {formatDistance(getStarCenterErrorMeters(result))}
-                          </span>
-                          <span>分數 {result.score.toFixed(3)}</span>
-                        </span>
-                      </button>
+                        </button>
+                      </div>
                       {isExpanded && (
                         <div className="result-expanded">
                           <div className="subsection-title">
@@ -4700,21 +4739,6 @@ function App() {
                               </li>
                             ))}
                           </ol>
-                          <div className="action-row">
-                            <button
-                              className="secondary-button"
-                              type="button"
-                              onClick={() => addStarFavorite(result)}
-                              disabled={
-                                areFavoritesLocked || isStarFavorite(result)
-                              }
-                            >
-                              <Star size={17} />
-                              {isStarFavorite(result)
-                                ? "已收藏星形"
-                                : "收藏星形"}
-                            </button>
-                          </div>
                           <div className="download-grid">
                             <button
                               type="button"

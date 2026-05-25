@@ -1236,17 +1236,54 @@ a {
 
 .result-row {
   display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 8px 10px;
+  color: var(--control-ink);
+}
+
+.result-row__toggle {
+  display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 7px;
   align-items: center;
   width: 100%;
   min-width: 0;
-  min-height: 42px;
-  padding: 8px 10px;
+  min-height: 34px;
+  padding: 0;
   text-align: left;
-  color: var(--control-ink);
+  color: inherit;
   background: transparent;
   border: 0;
+}
+
+.result-favorite-button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: var(--blue-dark);
+  background: var(--input-bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.result-favorite-button.active {
+  color: var(--orange);
+  background: color-mix(in srgb, var(--orange), transparent 88%);
+  border-color: color-mix(in srgb, var(--orange), transparent 42%);
+}
+
+.result-favorite-button:hover:not(:disabled),
+.result-favorite-button:focus-visible {
+  color: var(--button-contrast);
+  background: var(--blue);
+  border-color: var(--blue);
 }
 
 .result-row__heading {
@@ -2834,7 +2871,7 @@ a {
   }
 
   .result-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: 34px minmax(0, 1fr);
   }
 
   .result-toolbar {
