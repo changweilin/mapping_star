@@ -12,6 +12,9 @@ const matchAny = (
   values: string[]
 ) => values.includes(tags[key]);
 
+const hasAny = (tags: Record<string, string>, keys: string[]) =>
+  keys.some((key) => has(tags, key));
+
 const leadingNumber = (value: string | undefined) => {
   const match = value?.trim().match(/^-?\d+(?:\.\d+)?/);
   return match ? Number(match[0]) : NaN;
@@ -50,15 +53,23 @@ const PUBLIC_BUILDINGS = [
   "courthouse"
 ];
 
+const CHAIN_RESTAURANT_AMENITIES = ["fast_food", "food_court"];
+const CHAIN_RESTAURANT_TAGS = [
+  "brand",
+  "brand:en",
+  "brand:zh",
+  "brand:zh-Hant",
+  "brand:wikidata",
+  "franchise"
+];
+
+const CAFE_AMENITIES = ["cafe", "ice_cream"];
+const CAFE_SHOPS = ["coffee", "tea", "beverages", "ice_cream"];
+const NIGHTLIFE_AMENITIES = ["bar", "pub", "biergarten", "nightclub"];
+
 const TRAFFIC_RAILWAY = ["station", "halt", "tram_stop", "subway_entrance"];
 const TRAFFIC_AMENITIES = ["bus_station", "ferry_terminal"];
-const TRAFFIC_BUILDINGS = [
-  "train_station",
-  "transportation",
-  "parking",
-  "garage",
-  "garages"
-];
+const TRAFFIC_BUILDINGS = ["train_station", "transportation"];
 
 const MEDICAL_AMENITIES = ["hospital", "clinic", "doctors", "dentist"];
 const MEDICAL_HEALTHCARE = [
@@ -81,6 +92,41 @@ const EDUCATION_AMENITIES = [
 const EDUCATION_BUILDINGS = ["school", "university", "college", "kindergarten"];
 const EDUCATION_OFFICES = ["educational_institution", "research"];
 
+const COMMERCIAL_HIGH_RISE_BUILDINGS = ["commercial", "office", "retail"];
+const HOTEL_MIXED_USE_BUILDINGS = ["hotel", "mixed_use"];
+const RESIDENTIAL_HIGH_RISE_BUILDINGS = [
+  "apartments",
+  "detached",
+  "dormitory",
+  "house",
+  "residential",
+  "semidetached_house",
+  "terrace"
+];
+
+const TOURISM_ATTRACTIONS = [
+  "attraction",
+  "viewpoint",
+  "museum",
+  "gallery",
+  "zoo",
+  "theme_park"
+];
+
+const WATER_FEATURE_NATURAL = ["waterfall", "spring", "bay"];
+const WATER_BODY_VALUES = [
+  "basin",
+  "fishpond",
+  "lagoon",
+  "lake",
+  "moat",
+  "oxbow",
+  "pond",
+  "reflecting_pool",
+  "reservoir"
+];
+const WATERWAY_VALUES = ["river", "stream", "canal"];
+
 const hasAtLeastLevels = (tags: Record<string, string>, minLevels: number) =>
   leadingNumber(tags["building:levels"]) >= minLevels;
 
@@ -94,6 +140,20 @@ const matchesPublicBuilding = (tags: Record<string, string>) =>
   has(tags, "government") ||
   matchAny(tags, "amenity", PUBLIC_AMENITIES) ||
   matchAny(tags, "building", PUBLIC_BUILDINGS);
+
+const matchesFastFoodOrChainRestaurant = (tags: Record<string, string>) =>
+  matchAny(tags, "amenity", CHAIN_RESTAURANT_AMENITIES) ||
+  (tags.amenity === "restaurant" && hasAny(tags, CHAIN_RESTAURANT_TAGS));
+
+const matchesRestaurant = (tags: Record<string, string>) =>
+  tags.amenity === "restaurant" && !hasAny(tags, CHAIN_RESTAURANT_TAGS);
+
+const matchesCafe = (tags: Record<string, string>) =>
+  matchAny(tags, "amenity", CAFE_AMENITIES) ||
+  matchAny(tags, "shop", CAFE_SHOPS);
+
+const matchesNightlife = (tags: Record<string, string>) =>
+  matchAny(tags, "amenity", NIGHTLIFE_AMENITIES);
 
 const matchesTraffic = (tags: Record<string, string>) =>
   matchAny(tags, "railway", TRAFFIC_RAILWAY) ||
@@ -118,6 +178,44 @@ const matchesInstitutionalTarget = (tags: Record<string, string>) =>
   matchesTraffic(tags) ||
   matchesMedical(tags) ||
   matchesEducation(tags);
+
+const isHighRiseBuilding = (tags: Record<string, string>) =>
+  has(tags, "building") && hasAtLeastLevels(tags, HIGH_RISE_MIN_LEVELS);
+
+const matchesResidentialHighRise = (tags: Record<string, string>) =>
+  isHighRiseBuilding(tags) &&
+  matchAny(tags, "building", RESIDENTIAL_HIGH_RISE_BUILDINGS);
+
+const matchesHotelOrMixedUseHighRise = (tags: Record<string, string>) =>
+  isHighRiseBuilding(tags) &&
+  !matchesInstitutionalTarget(tags) &&
+  (matchAny(tags, "building", HOTEL_MIXED_USE_BUILDINGS) ||
+    tags.tourism === "hotel");
+
+const matchesCommercialHighRise = (tags: Record<string, string>) =>
+  isHighRiseBuilding(tags) &&
+  !matchesInstitutionalTarget(tags) &&
+  !matchesResidentialHighRise(tags) &&
+  !matchesHotelOrMixedUseHighRise(tags) &&
+  (matchAny(tags, "building", COMMERCIAL_HIGH_RISE_BUILDINGS) ||
+    has(tags, "office") ||
+    has(tags, "shop"));
+
+const matchesHistoric = (tags: Record<string, string>) => has(tags, "historic");
+
+const matchesTourismAttraction = (tags: Record<string, string>) =>
+  matchAny(tags, "tourism", TOURISM_ATTRACTIONS) && !matchesHistoric(tags);
+
+const matchesWaterFeature = (tags: Record<string, string>) =>
+  matchAny(tags, "natural", WATER_FEATURE_NATURAL) ||
+  (tags.natural === "water" &&
+    (!tags.water || WATER_BODY_VALUES.includes(tags.water))) ||
+  matchAny(tags, "water", WATER_BODY_VALUES) ||
+  tags.waterway === "waterfall";
+
+const matchesWaterway = (tags: Record<string, string>) =>
+  matchAny(tags, "waterway", WATERWAY_VALUES) ||
+  matchAny(tags, "water", WATERWAY_VALUES);
 
 export const POI_CATEGORIES: PoiCategory[] = [
   {
@@ -159,30 +257,48 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "cafe",
-    label: "咖啡/飲料",
-    description: "咖啡廳、酒吧、飲料、茶與冰品店",
+    label: "咖啡/茶飲",
+    description: "咖啡廳、茶飲、飲料與冰品店",
     color: "#8b6f47",
     overpassFilters: [
-      '["amenity"~"^(cafe|bar|pub|biergarten|ice_cream)$"]',
+      '["amenity"~"^(cafe|ice_cream)$"]',
       '["shop"~"^(coffee|tea|beverages|ice_cream)$"]'
     ],
-    matches: (tags) =>
-      matchAny(tags, "amenity", [
-        "cafe",
-        "bar",
-        "pub",
-        "biergarten",
-        "ice_cream"
-      ]) || matchAny(tags, "shop", ["coffee", "tea", "beverages", "ice_cream"])
+    matches: matchesCafe
+  },
+  {
+    id: "nightlife",
+    label: "酒吧/夜生活",
+    description: "酒吧、酒館、啤酒花園與夜店",
+    color: "#7b4ca0",
+    overpassFilters: ['["amenity"~"^(bar|pub|biergarten|nightclub)$"]'],
+    matches: matchesNightlife
   },
   {
     id: "restaurant",
     label: "餐廳",
-    description: "餐廳、速食與美食廣場",
+    description: "一般餐廳，排除有品牌標籤的連鎖餐飲",
     color: "#c84f3f",
-    overpassFilters: ['["amenity"~"^(restaurant|fast_food|food_court)$"]'],
-    matches: (tags) =>
-      matchAny(tags, "amenity", ["restaurant", "fast_food", "food_court"])
+    overpassFilters: [
+      '["amenity"="restaurant"][!"brand"][!"brand:en"][!"brand:zh"][!"brand:zh-Hant"][!"brand:wikidata"][!"franchise"]'
+    ],
+    matches: matchesRestaurant
+  },
+  {
+    id: "fast-food-chain",
+    label: "速食/連鎖餐飲集團",
+    description: "速食、美食廣場與有品牌標籤的連鎖餐飲",
+    color: "#e07a35",
+    overpassFilters: [
+      '["amenity"~"^(fast_food|food_court)$"]',
+      '["amenity"="restaurant"]["brand"]',
+      '["amenity"="restaurant"]["brand:en"]',
+      '["amenity"="restaurant"]["brand:zh"]',
+      '["amenity"="restaurant"]["brand:zh-Hant"]',
+      '["amenity"="restaurant"]["brand:wikidata"]',
+      '["amenity"="restaurant"]["franchise"]'
+    ],
+    matches: matchesFastFoodOrChainRestaurant
   },
   {
     id: "government",
@@ -200,14 +316,14 @@ export const POI_CATEGORIES: PoiCategory[] = [
   {
     id: "station",
     label: "交通",
-    description: "鐵路、捷運、輕軌、纜車、公車轉運站與交通建築",
+    description: "鐵路、捷運、輕軌、纜車、公車轉運站與交通建築，不含停車場",
     color: "#4169a8",
     overpassFilters: [
       '["railway"~"^(station|halt|tram_stop|subway_entrance)$"]',
       '["public_transport"="station"]',
       '["amenity"~"^(bus_station|ferry_terminal)$"]',
       '["aerialway"="station"]',
-      '["building"~"^(train_station|transportation|parking|garage|garages)$"]'
+      '["building"~"^(train_station|transportation)$"]'
     ],
     matches: matchesTraffic
   },
@@ -237,36 +353,46 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "building",
-    label: "商辦/高樓",
-    description: `${HIGH_RISE_MIN_LEVELS} 層以上，且排除宗教、公共、交通、醫療與學校類目標`,
+    label: "商辦/商業",
+    description: `${HIGH_RISE_MIN_LEVELS} 層以上的商業、辦公與零售建築，排除住宅高樓`,
     color: "#5c6470",
     broad: true,
     overpassFilters: [
-      `["building"]["building:levels"](if:number(t["building:levels"]) >= ${HIGH_RISE_MIN_LEVELS})`
+      `["building"~"^(commercial|office|retail)$"]["building:levels"](if:number(t["building:levels"]) >= ${HIGH_RISE_MIN_LEVELS})`,
+      `["office"]["building"]["building:levels"](if:number(t["building:levels"]) >= ${HIGH_RISE_MIN_LEVELS})`,
+      `["shop"]["building"]["building:levels"](if:number(t["building:levels"]) >= ${HIGH_RISE_MIN_LEVELS})`
     ],
-    matches: (tags) =>
-      has(tags, "building") &&
-      hasAtLeastLevels(tags, HIGH_RISE_MIN_LEVELS) &&
-      !matchesInstitutionalTarget(tags)
+    matches: matchesCommercialHighRise
+  },
+  {
+    id: "hotel-mixed-use",
+    label: "旅館/複合大樓",
+    description: `${HIGH_RISE_MIN_LEVELS} 層以上的旅館與複合用途大樓`,
+    color: "#7f6b54",
+    broad: true,
+    overpassFilters: [
+      `["building"~"^(hotel|mixed_use)$"]["building:levels"](if:number(t["building:levels"]) >= ${HIGH_RISE_MIN_LEVELS})`,
+      `["tourism"="hotel"]["building"]["building:levels"](if:number(t["building:levels"]) >= ${HIGH_RISE_MIN_LEVELS})`
+    ],
+    matches: matchesHotelOrMixedUseHighRise
   },
   {
     id: "attraction",
-    label: "景點",
-    description: "觀光景點、展館、觀景點與遊樂設施",
+    label: "觀光景點/展館",
+    description: "觀光景點、展館、觀景點與遊樂設施，排除古蹟歷史類",
     color: "#2e7d69",
     overpassFilters: [
-      '["tourism"~"^(attraction|viewpoint|museum|gallery|zoo|theme_park)$"]',
-      '["historic"]'
+      '["tourism"~"^(attraction|viewpoint|museum|gallery|zoo|theme_park)$"][!"historic"]'
     ],
-    matches: (tags) =>
-      matchAny(tags, "tourism", [
-        "attraction",
-        "viewpoint",
-        "museum",
-        "gallery",
-        "zoo",
-        "theme_park"
-      ]) || has(tags, "historic")
+    matches: matchesTourismAttraction
+  },
+  {
+    id: "historic",
+    label: "古蹟/歷史",
+    description: "古蹟、歷史建築、紀念物與其他歷史地點",
+    color: "#8a6a3a",
+    overpassFilters: ['["historic"]'],
+    matches: matchesHistoric
   },
   {
     id: "park",
@@ -294,18 +420,27 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "water",
-    label: "水域",
-    description: "瀑布、湖泊、池塘、水庫、泉水與水道",
+    label: "瀑布/泉水/湖泊水體",
+    description: "瀑布、泉水、海灣、湖泊、池塘與水庫等水體",
     color: "#2f7fc1",
     overpassFilters: [
-      '["natural"~"^(water|waterfall|spring|bay)$"]',
-      '["water"]',
-      '["waterway"~"^(waterfall|river|stream|canal)$"]'
+      '["natural"~"^(waterfall|spring|bay)$"]',
+      '["natural"="water"][!"water"]',
+      '["water"~"^(basin|fishpond|lagoon|lake|moat|oxbow|pond|reflecting_pool|reservoir)$"]',
+      '["waterway"="waterfall"]'
     ],
-    matches: (tags) =>
-      matchAny(tags, "natural", ["water", "waterfall", "spring", "bay"]) ||
-      has(tags, "water") ||
-      matchAny(tags, "waterway", ["waterfall", "river", "stream", "canal"])
+    matches: matchesWaterFeature
+  },
+  {
+    id: "waterway",
+    label: "河流/水道",
+    description: "河流、溪流、運河與其他線狀水道",
+    color: "#1b6f8f",
+    overpassFilters: [
+      '["waterway"~"^(river|stream|canal)$"]',
+      '["water"~"^(river|stream|canal)$"]'
+    ],
+    matches: matchesWaterway
   }
 ];
 

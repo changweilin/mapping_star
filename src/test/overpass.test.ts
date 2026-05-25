@@ -53,7 +53,8 @@ describe("overpass helpers", () => {
       [mustCategory("building")]
     );
 
-    expect(query).toContain('["building"]["building:levels"]');
+    expect(query).toContain('["building"~"^(commercial|office|retail)$"]');
+    expect(query).toContain('["office"]["building"]["building:levels"]');
     expect(query).toContain('number(t["building:levels"]) >= 16');
   });
 
@@ -125,7 +126,7 @@ describe("overpass helpers", () => {
           center: { lat: 25, lon: 121 },
           tags: {
             name: "Office tower",
-            building: "yes",
+            building: "commercial",
             "building:levels": "16"
           }
         },
@@ -206,6 +207,15 @@ describe("overpass helpers", () => {
             name: "Peak",
             natural: "peak"
           }
+        },
+        {
+          type: "way",
+          id: 10,
+          center: { lat: 25.009, lon: 121.009 },
+          tags: {
+            name: "Parking garage",
+            building: "parking"
+          }
         }
       ],
       { lat: 25, lng: 121 },
@@ -213,6 +223,7 @@ describe("overpass helpers", () => {
     );
 
     expect(pois.map((poi) => poi.name)).not.toContain("Fifteen floors");
+    expect(pois.map((poi) => poi.name)).not.toContain("Parking garage");
     expect(pois.map((poi) => poi.categoryId)).toEqual([
       "building",
       "convenience",
@@ -223,7 +234,7 @@ describe("overpass helpers", () => {
       "education",
       "peak"
     ]);
-    expect(pois[0].categoryLabel).toBe("商辦/高樓");
+    expect(pois[0].categoryLabel).toBe("商辦/商業");
     expect(pois[3].categoryLabel).toBe("公共建築");
     expect(pois[4].categoryLabel).toBe("交通");
     expect(pois[5].categoryLabel).toBe("醫療建築");
@@ -283,6 +294,26 @@ describe("overpass helpers", () => {
             building: "commercial",
             "building:levels": "20"
           }
+        },
+        {
+          type: "way",
+          id: 6,
+          center: { lat: 25.005, lon: 121.005 },
+          tags: {
+            name: "Residential tower",
+            building: "residential",
+            "building:levels": "30"
+          }
+        },
+        {
+          type: "way",
+          id: 7,
+          center: { lat: 25.006, lon: 121.006 },
+          tags: {
+            name: "Hotel tower",
+            building: "hotel",
+            "building:levels": "20"
+          }
         }
       ],
       { lat: 25, lng: 121 },
@@ -290,6 +321,140 @@ describe("overpass helpers", () => {
     );
 
     expect(pois.map((poi) => poi.name)).toEqual(["Commercial tower"]);
+  });
+
+  it("matches newly split food, attraction, water, and high-rise categories", () => {
+    const pois = parseOverpassElements(
+      [
+        {
+          type: "node",
+          id: 1,
+          lat: 25,
+          lon: 121,
+          tags: {
+            name: "Local restaurant",
+            amenity: "restaurant"
+          }
+        },
+        {
+          type: "node",
+          id: 2,
+          lat: 25.001,
+          lon: 121.001,
+          tags: {
+            name: "Branded restaurant",
+            amenity: "restaurant",
+            brand: "Chain"
+          }
+        },
+        {
+          type: "node",
+          id: 3,
+          lat: 25.002,
+          lon: 121.002,
+          tags: {
+            name: "Fast food",
+            amenity: "fast_food"
+          }
+        },
+        {
+          type: "node",
+          id: 4,
+          lat: 25.003,
+          lon: 121.003,
+          tags: {
+            name: "Night bar",
+            amenity: "bar"
+          }
+        },
+        {
+          type: "node",
+          id: 5,
+          lat: 25.004,
+          lon: 121.004,
+          tags: {
+            name: "Historic museum",
+            tourism: "museum",
+            historic: "yes"
+          }
+        },
+        {
+          type: "node",
+          id: 6,
+          lat: 25.005,
+          lon: 121.005,
+          tags: {
+            name: "Museum",
+            tourism: "museum"
+          }
+        },
+        {
+          type: "way",
+          id: 7,
+          center: { lat: 25.006, lon: 121.006 },
+          tags: {
+            name: "Lake",
+            natural: "water",
+            water: "lake"
+          }
+        },
+        {
+          type: "way",
+          id: 8,
+          center: { lat: 25.007, lon: 121.007 },
+          tags: {
+            name: "River",
+            waterway: "river"
+          }
+        },
+        {
+          type: "way",
+          id: 9,
+          center: { lat: 25.008, lon: 121.008 },
+          tags: {
+            name: "Hotel tower",
+            building: "hotel",
+            "building:levels": "20"
+          }
+        },
+        {
+          type: "way",
+          id: 10,
+          center: { lat: 25.009, lon: 121.009 },
+          tags: {
+            name: "Residential tower",
+            building: "residential",
+            "building:levels": "30"
+          }
+        }
+      ],
+      { lat: 25, lng: 121 },
+      POI_CATEGORIES
+    );
+
+    expect(pois.map((poi) => poi.name)).not.toContain("Residential tower");
+    expect(pois.map((poi) => poi.categoryId)).toEqual([
+      "restaurant",
+      "fast-food-chain",
+      "fast-food-chain",
+      "nightlife",
+      "historic",
+      "attraction",
+      "water",
+      "waterway",
+      "hotel-mixed-use"
+    ]);
+    expect(pois.map((poi) => poi.categoryLabel)).toEqual([
+      "餐廳",
+      "速食/連鎖餐飲集團",
+      "速食/連鎖餐飲集團",
+      "酒吧/夜生活",
+      "古蹟/歷史",
+      "觀光景點/展館",
+      "瀑布/泉水/湖泊水體",
+      "河流/水道",
+      "旅館/複合大樓"
+    ]);
   });
 
   it("tries another endpoint for transient Overpass failures", async () => {
