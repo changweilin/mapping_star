@@ -143,6 +143,19 @@ const DEFAULT_DESKTOP_SECTION_EXPANSION = {
   favorites: false
 } satisfies Record<MobileSettingsTab, boolean>;
 
+const CATEGORY_GROUP_ORDER = [
+  "餐飲",
+  "商業",
+  "公共機構",
+  "人文觀光",
+  "自然"
+] as const;
+
+const CATEGORY_GROUPS = CATEGORY_GROUP_ORDER.map((group) => ({
+  group,
+  categories: POI_CATEGORIES.filter((category) => category.group === group)
+})).filter(({ categories }) => categories.length > 0);
+
 const STAR_RESULT_SORT_OPTIONS = [
   { id: "score", label: "分數" },
   { id: "radius", label: "半徑" },
@@ -1731,12 +1744,14 @@ function App() {
   );
   const [error, setError] = useState("");
 
+  const selectedCategoryIdSet = useMemo(
+    () => new Set(selectedCategoryIds),
+    [selectedCategoryIds]
+  );
   const selectedCategories = useMemo(
     () =>
-      POI_CATEGORIES.filter((category) =>
-        selectedCategoryIds.includes(category.id)
-      ),
-    [selectedCategoryIds]
+      POI_CATEGORIES.filter((category) => selectedCategoryIdSet.has(category.id)),
+    [selectedCategoryIdSet]
   );
   const sortedResults = useMemo(
     () => sortStarResults(results, starResultSort, starResultSortDirection),
@@ -4307,48 +4322,62 @@ function App() {
           {renderPanelTitle("categories", "目標類別", MapPin)}
           <div className="category-stack">
             <div
-              className={`category-grid ${
-                areCategoryOptionsExpanded ? "category-grid--expanded" : ""
+              className={`category-groups ${
+                areCategoryOptionsExpanded ? "category-groups--expanded" : ""
               }`}
               id="target-category-grid"
             >
-              {POI_CATEGORIES.map((category) => (
-                <label className="category-option" key={category.id}>
-                  <input
-                    type="checkbox"
-                    checked={selectedCategoryIds.includes(category.id)}
-                    onChange={() => handleCategoryToggle(category.id)}
-                  />
-                  <span
-                    className="swatch"
-                    style={{ backgroundColor: category.color }}
-                  />
-                  <span>
-                    {category.label}
-                    {category.broad && <small>資料量大</small>}
-                  </span>
-                </label>
-              ))}
+              {CATEGORY_GROUPS.map(({ group, categories }) => {
+                const selectedCount = categories.filter((category) =>
+                  selectedCategoryIdSet.has(category.id)
+                ).length;
+
+                return (
+                  <section className="category-group" key={group}>
+                    <div className="category-group__title">
+                      <strong>{group}</strong>
+                      <span>
+                        {selectedCount}/{categories.length}
+                      </span>
+                    </div>
+                    <div className="category-grid">
+                      {categories.map((category) => (
+                        <label
+                          className="category-option"
+                          key={category.id}
+                          title={category.description}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedCategoryIdSet.has(category.id)}
+                            onChange={() => handleCategoryToggle(category.id)}
+                          />
+                          <span
+                            className="swatch"
+                            style={{ backgroundColor: category.color }}
+                          />
+                          <span className="category-option__label">
+                            {category.label}
+                            {category.broad && <small>資料量大</small>}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </section>
+                );
+              })}
             </div>
             {!areCategoryOptionsExpanded && (
               <div
                 aria-hidden="true"
                 className="category-fade-preview fade-preview"
               >
-                {POI_CATEGORIES.slice(4, 6).map((category) => (
+                {CATEGORY_GROUPS.slice(1, 3).map(({ group }) => (
                   <div
-                    className="category-option category-option--preview"
-                    key={category.id}
+                    className="category-group-preview"
+                    key={group}
                   >
-                    <span className="category-option__input-ghost" />
-                    <span
-                      className="swatch"
-                      style={{ backgroundColor: category.color }}
-                    />
-                    <span>
-                      {category.label}
-                      {category.broad && <small>資料量大</small>}
-                    </span>
+                    {group}
                   </div>
                 ))}
               </div>

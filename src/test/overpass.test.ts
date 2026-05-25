@@ -234,11 +234,11 @@ describe("overpass helpers", () => {
       "education",
       "peak"
     ]);
-    expect(pois[0].categoryLabel).toBe("商辦/商業");
+    expect(pois[0].categoryLabel).toBe("商辦");
     expect(pois[3].categoryLabel).toBe("公共建築");
-    expect(pois[4].categoryLabel).toBe("交通");
-    expect(pois[5].categoryLabel).toBe("醫療建築");
-    expect(pois[6].categoryLabel).toBe("學校/學術");
+    expect(pois[4].categoryLabel).toBe("大眾運輸");
+    expect(pois[5].categoryLabel).toBe("醫療");
+    expect(pois[6].categoryLabel).toBe("學校");
     expect(pois[7].categoryLabel).toBe("山峰");
   });
 
@@ -446,14 +446,14 @@ describe("overpass helpers", () => {
     ]);
     expect(pois.map((poi) => poi.categoryLabel)).toEqual([
       "餐廳",
-      "速食/連鎖餐飲集團",
-      "速食/連鎖餐飲集團",
-      "酒吧/夜生活",
-      "古蹟/歷史",
-      "觀光景點/展館",
-      "瀑布/泉水/湖泊水體",
-      "河流/水道",
-      "旅館/複合大樓"
+      "速食連鎖",
+      "速食連鎖",
+      "夜生活",
+      "古蹟",
+      "景點展館",
+      "水體",
+      "水道",
+      "旅館複合"
     ]);
   });
 
@@ -688,7 +688,7 @@ describe("overpass helpers", () => {
     expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(result.pois).toHaveLength(1);
     expect(result.pois[0].name).toBe("Temple");
-    expect(result.warnings[0]).toContain("寺廟/宗教 的部分條件查詢失敗");
+    expect(result.warnings[0]).toContain("宗教 的部分條件查詢失敗");
     expect(result.warnings[0]).toContain("請求逾時");
   });
 

@@ -220,7 +220,8 @@ const matchesWaterway = (tags: Record<string, string>) =>
 export const POI_CATEGORIES: PoiCategory[] = [
   {
     id: "religion",
-    label: "寺廟/宗教",
+    group: "人文觀光",
+    label: "宗教",
     description: "神社、佛寺、教堂、修道院與其他宗教建築",
     color: "#b94b7a",
     overpassFilters: [
@@ -231,7 +232,8 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "convenience",
-    label: "便利商店",
+    group: "商業",
+    label: "便利店",
     description: "便利商店、小型日用品店與雜貨店",
     color: "#d8842f",
     overpassFilters: ['["shop"~"^(convenience|variety_store)$"]'],
@@ -239,6 +241,7 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "market",
+    group: "商業",
     label: "賣場",
     description: "超市、量販店、百貨商場、購物中心與市場",
     color: "#a45b2a",
@@ -257,7 +260,8 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "cafe",
-    label: "咖啡/茶飲",
+    group: "餐飲",
+    label: "咖啡茶飲",
     description: "咖啡廳、茶飲、飲料與冰品店",
     color: "#8b6f47",
     overpassFilters: [
@@ -268,7 +272,8 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "nightlife",
-    label: "酒吧/夜生活",
+    group: "餐飲",
+    label: "夜生活",
     description: "酒吧、酒館、啤酒花園與夜店",
     color: "#7b4ca0",
     overpassFilters: ['["amenity"~"^(bar|pub|biergarten|nightclub)$"]'],
@@ -276,6 +281,7 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "restaurant",
+    group: "餐飲",
     label: "餐廳",
     description: "一般餐廳，排除有品牌標籤的連鎖餐飲",
     color: "#c84f3f",
@@ -286,7 +292,8 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "fast-food-chain",
-    label: "速食/連鎖餐飲集團",
+    group: "餐飲",
+    label: "速食連鎖",
     description: "速食、美食廣場與有品牌標籤的連鎖餐飲",
     color: "#e07a35",
     overpassFilters: [
@@ -302,6 +309,7 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "government",
+    group: "公共機構",
     label: "公共建築",
     description: "政府機關、行政單位、警消、法院、圖書館與公共設施",
     color: "#55779f",
@@ -315,7 +323,8 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "station",
-    label: "交通",
+    group: "公共機構",
+    label: "大眾運輸",
     description: "鐵路、捷運、輕軌、纜車、公車轉運站與交通建築，不含停車場",
     color: "#4169a8",
     overpassFilters: [
@@ -329,7 +338,8 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "medical",
-    label: "醫療建築",
+    group: "公共機構",
+    label: "醫療",
     description: "醫院、診所、牙醫與主要醫療服務建築",
     color: "#b94d58",
     overpassFilters: [
@@ -341,7 +351,8 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "education",
-    label: "學校/學術",
+    group: "公共機構",
+    label: "學校",
     description: "學校、大學、幼兒園、研究機構與教育單位",
     color: "#6a62ad",
     overpassFilters: [
@@ -353,7 +364,8 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "building",
-    label: "商辦/商業",
+    group: "商業",
+    label: "商辦",
     description: `${HIGH_RISE_MIN_LEVELS} 層以上的商業、辦公與零售建築，排除住宅高樓`,
     color: "#5c6470",
     broad: true,
@@ -366,7 +378,8 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "hotel-mixed-use",
-    label: "旅館/複合大樓",
+    group: "商業",
+    label: "旅館複合",
     description: `${HIGH_RISE_MIN_LEVELS} 層以上的旅館與複合用途大樓`,
     color: "#7f6b54",
     broad: true,
@@ -378,7 +391,8 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "attraction",
-    label: "觀光景點/展館",
+    group: "人文觀光",
+    label: "景點展館",
     description: "觀光景點、展館、觀景點與遊樂設施，排除古蹟歷史類",
     color: "#2e7d69",
     overpassFilters: [
@@ -388,7 +402,8 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "historic",
-    label: "古蹟/歷史",
+    group: "人文觀光",
+    label: "古蹟",
     description: "古蹟、歷史建築、紀念物與其他歷史地點",
     color: "#8a6a3a",
     overpassFilters: ['["historic"]'],
@@ -396,6 +411,7 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "park",
+    group: "自然",
     label: "公園",
     description: "公園、花園、自然保護區與國家公園",
     color: "#3e8b3f",
@@ -411,6 +427,7 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "peak",
+    group: "自然",
     label: "山峰",
     description: "山峰、鞍部與自然地形高點",
     color: "#7b5f36",
@@ -420,7 +437,8 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "water",
-    label: "瀑布/泉水/湖泊水體",
+    group: "自然",
+    label: "水體",
     description: "瀑布、泉水、海灣、湖泊、池塘與水庫等水體",
     color: "#2f7fc1",
     overpassFilters: [
@@ -433,7 +451,8 @@ export const POI_CATEGORIES: PoiCategory[] = [
   },
   {
     id: "waterway",
-    label: "河流/水道",
+    group: "自然",
+    label: "水道",
     description: "河流、溪流、運河與其他線狀水道",
     color: "#1b6f8f",
     overpassFilters: [

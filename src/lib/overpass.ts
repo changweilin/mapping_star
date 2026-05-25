@@ -416,6 +416,7 @@ const fetchOverpassElementsForBoundsFilters = (
       [
         {
           id: "bbox-filter",
+          group: "暫用",
           label: "範圍條件",
           description: "",
           color: "#000000",

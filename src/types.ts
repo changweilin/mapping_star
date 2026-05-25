@@ -5,6 +5,7 @@ export interface LatLng {
 
 export interface PoiCategory {
   id: string;
+  group: string;
   label: string;
   description: string;
   color: string;
