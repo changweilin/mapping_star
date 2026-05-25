@@ -352,6 +352,16 @@ a {
     content: "";
     pointer-events: none;
   }
+
+  .categories-panel.desktop-collapsible-panel--collapsed {
+    max-height: 174px;
+  }
+
+  .categories-panel.desktop-collapsible-panel--collapsed .category-group:first-child .category-option:nth-child(n + 3),
+  .categories-panel.desktop-collapsible-panel--collapsed .category-group:not(:first-child),
+  .categories-panel.desktop-collapsible-panel--collapsed .category-fade-preview {
+    pointer-events: none;
+  }
 }
 
 .panel-title {

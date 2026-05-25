@@ -23,11 +23,11 @@ export interface AppSettings {
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
-  innerRadiusKm: 0,
-  outerRadiusKm: 30,
+  innerRadiusKm: 4,
+  outerRadiusKm: 6,
   starMode: 5,
-  angleToleranceDeg: 36,
-  candidatesPerSlot: 8,
+  angleToleranceDeg: 6,
+  candidatesPerSlot: 4,
   rotationStepDeg: 3,
   searchStrategy: "honeycomb",
   hexCellRadiusKm: 0.5,

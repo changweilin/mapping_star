@@ -28,6 +28,10 @@ describe("settings helpers", () => {
   it("defaults to only the religion category", () => {
     expect(DEFAULT_CATEGORY_IDS).toEqual(["religion"]);
     expect(DEFAULT_APP_SETTINGS.selectedCategoryIds).toEqual(["religion"]);
+    expect(DEFAULT_APP_SETTINGS.innerRadiusKm).toBe(4);
+    expect(DEFAULT_APP_SETTINGS.outerRadiusKm).toBe(6);
+    expect(DEFAULT_APP_SETTINGS.angleToleranceDeg).toBe(6);
+    expect(DEFAULT_APP_SETTINGS.candidatesPerSlot).toBe(4);
     expect(DEFAULT_APP_SETTINGS.searchStrategy).toBe("honeycomb");
     expect(DEFAULT_APP_SETTINGS.hexCellRadiusKm).toBe(0.5);
     expect(DEFAULT_APP_SETTINGS.showHoneycomb).toBe(false);
@@ -70,7 +74,7 @@ describe("settings helpers", () => {
       radiusKm: 12
     });
 
-    expect(settings.innerRadiusKm).toBe(0);
+    expect(settings.innerRadiusKm).toBe(4);
     expect(settings.outerRadiusKm).toBe(12);
   });
 

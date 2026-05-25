@@ -144,11 +144,11 @@ const DEFAULT_DESKTOP_SECTION_EXPANSION = {
 } satisfies Record<MobileSettingsTab, boolean>;
 
 const CATEGORY_GROUP_ORDER = [
-  "餐飲",
-  "商業",
-  "公共機構",
   "人文觀光",
-  "自然"
+  "自然",
+  "公共機構",
+  "餐飲",
+  "商業"
 ] as const;
 
 const CATEGORY_GROUPS = CATEGORY_GROUP_ORDER.map((group) => ({
@@ -4318,7 +4318,12 @@ function App() {
           </p>
         </section>
 
-        <section className={getMobileTabPanelClass("categories")}>
+        <section
+          className={getMobileTabPanelClass(
+            "categories",
+            "panel categories-panel"
+          )}
+        >
           {renderPanelTitle("categories", "目標類別", MapPin)}
           <div className="category-stack">
             <div
