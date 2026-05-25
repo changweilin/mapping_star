@@ -1668,6 +1668,15 @@ function App() {
   );
   const [selectedCategoryIds, setSelectedCategoryIds] =
     useState<string[]>(initialSettings.selectedCategoryIds);
+  const [selectedCategoryGroups, setSelectedCategoryGroups] = useState<
+    string[]
+  >(initialSettings.selectedCategoryGroups);
+  const [
+    categoryGroupSelectionSnapshots,
+    setCategoryGroupSelectionSnapshots
+  ] = useState<Record<string, string[]>>(
+    initialSettings.categoryGroupSelectionSnapshots
+  );
   const [expandedDesktopSections, setExpandedDesktopSections] = useState<
     Record<MobileSettingsTab, boolean>
   >(DEFAULT_DESKTOP_SECTION_EXPANSION);
@@ -1747,6 +1756,10 @@ function App() {
   const selectedCategoryIdSet = useMemo(
     () => new Set(selectedCategoryIds),
     [selectedCategoryIds]
+  );
+  const selectedCategoryGroupSet = useMemo(
+    () => new Set(selectedCategoryGroups),
+    [selectedCategoryGroups]
   );
   const selectedCategories = useMemo(
     () =>
@@ -2980,11 +2993,14 @@ function App() {
       showSectors,
       showHoneycomb,
       selectedCategoryIds,
+      selectedCategoryGroups,
+      categoryGroupSelectionSnapshots,
       theme,
       mapLayer
     });
   }, [
     candidatesPerSlot,
+    categoryGroupSelectionSnapshots,
     effectiveAngleToleranceDeg,
     hexCellRadiusKm,
     innerRadiusKm,
@@ -2992,6 +3008,7 @@ function App() {
     rotationStepDeg,
     searchStrategy,
     selectedCategoryIds,
+    selectedCategoryGroups,
     showHoneycomb,
     showSectors,
     starMode,
@@ -3862,7 +3879,48 @@ function App() {
     }
   };
 
+  const handleCategoryGroupToggle = (group: string, categoryIds: string[]) => {
+    const isGroupLocked = selectedCategoryGroupSet.has(group);
+    const categoryIdSet = new Set(categoryIds);
+
+    if (isGroupLocked) {
+      const hasSnapshot = Object.prototype.hasOwnProperty.call(
+        categoryGroupSelectionSnapshots,
+        group
+      );
+      const restoredCategoryIds = hasSnapshot
+        ? categoryGroupSelectionSnapshots[group] ?? []
+        : selectedCategoryIds.filter((id) => categoryIdSet.has(id));
+
+      setSelectedCategoryGroups((current) =>
+        current.filter((currentGroup) => currentGroup !== group)
+      );
+      setSelectedCategoryIds((current) => [
+        ...current.filter((id) => !categoryIdSet.has(id)),
+        ...restoredCategoryIds.filter((id) => categoryIdSet.has(id))
+      ]);
+      setCategoryGroupSelectionSnapshots((current) => {
+        const next = { ...current };
+        delete next[group];
+        return next;
+      });
+      return;
+    }
+
+    setCategoryGroupSelectionSnapshots((current) => ({
+      ...current,
+      [group]: selectedCategoryIds.filter((id) => categoryIdSet.has(id))
+    }));
+    setSelectedCategoryGroups((current) => [...new Set([...current, group])]);
+    setSelectedCategoryIds((current) => [
+      ...new Set([...current, ...categoryIds])
+    ]);
+  };
+
   const handleCategoryToggle = (categoryId: string) => {
+    const category = POI_CATEGORIES.find(({ id }) => id === categoryId);
+    if (category && selectedCategoryGroupSet.has(category.group)) return;
+
     setSelectedCategoryIds((current) =>
       current.includes(categoryId)
         ? current.filter((id) => id !== categoryId)
@@ -4336,25 +4394,44 @@ function App() {
                 const selectedCount = categories.filter((category) =>
                   selectedCategoryIdSet.has(category.id)
                 ).length;
+                const categoryIds = categories.map((category) => category.id);
+                const isGroupLocked = selectedCategoryGroupSet.has(group);
 
                 return (
-                  <section className="category-group" key={group}>
-                    <div className="category-group__title">
-                      <strong>{group}</strong>
-                      <span>
-                        {selectedCount}/{categories.length}
+                  <section
+                    className={`category-group ${
+                      isGroupLocked ? "category-group--locked" : ""
+                    }`}
+                    key={group}
+                  >
+                    <label className="category-group__title">
+                      <input
+                        type="checkbox"
+                        checked={isGroupLocked}
+                        onChange={() =>
+                          handleCategoryGroupToggle(group, categoryIds)
+                        }
+                      />
+                      <span className="category-group__label">
+                        <strong>{group}</strong>
+                        <span className="category-group__count">
+                          {selectedCount}/{categories.length}
+                        </span>
                       </span>
-                    </div>
+                    </label>
                     <div className="category-grid">
                       {categories.map((category) => (
                         <label
-                          className="category-option"
+                          className={`category-option ${
+                            isGroupLocked ? "category-option--locked" : ""
+                          }`}
                           key={category.id}
                           title={category.description}
                         >
                           <input
                             type="checkbox"
                             checked={selectedCategoryIdSet.has(category.id)}
+                            disabled={isGroupLocked}
                             onChange={() => handleCategoryToggle(category.id)}
                           />
                           <span

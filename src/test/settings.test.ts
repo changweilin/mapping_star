@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_CATEGORY_IDS } from "../data/categories";
+import { DEFAULT_CATEGORY_IDS, POI_CATEGORIES } from "../data/categories";
 import {
   DEFAULT_APP_SETTINGS,
   loadSettings,
@@ -28,6 +28,8 @@ describe("settings helpers", () => {
   it("defaults to only the religion category", () => {
     expect(DEFAULT_CATEGORY_IDS).toEqual(["religion"]);
     expect(DEFAULT_APP_SETTINGS.selectedCategoryIds).toEqual(["religion"]);
+    expect(DEFAULT_APP_SETTINGS.selectedCategoryGroups).toEqual([]);
+    expect(DEFAULT_APP_SETTINGS.categoryGroupSelectionSnapshots).toEqual({});
     expect(DEFAULT_APP_SETTINGS.innerRadiusKm).toBe(4);
     expect(DEFAULT_APP_SETTINGS.outerRadiusKm).toBe(6);
     expect(DEFAULT_APP_SETTINGS.angleToleranceDeg).toBe(6);
@@ -50,6 +52,8 @@ describe("settings helpers", () => {
       showSectors: false,
       showHoneycomb: true,
       selectedCategoryIds: ["religion", "missing", "station", "station"],
+      selectedCategoryGroups: ["missing"],
+      categoryGroupSelectionSnapshots: { missing: ["station"] },
       theme: "dark",
       mapLayer: "satellite"
     });
@@ -65,6 +69,8 @@ describe("settings helpers", () => {
     expect(settings.showSectors).toBe(false);
     expect(settings.showHoneycomb).toBe(true);
     expect(settings.selectedCategoryIds).toEqual(["religion", "station"]);
+    expect(settings.selectedCategoryGroups).toEqual([]);
+    expect(settings.categoryGroupSelectionSnapshots).toEqual({});
     expect(settings.theme).toBe("dark");
     expect(settings.mapLayer).toBe("satellite");
   });
@@ -84,6 +90,43 @@ describe("settings helpers", () => {
     });
 
     expect(settings.selectedCategoryIds).toEqual(["religion"]);
+  });
+
+  it("selects every child category when a category group is locked", () => {
+    const group = POI_CATEGORIES.find((category) => category.id === "station")!
+      .group;
+    const expectedIds = POI_CATEGORIES.filter(
+      (category) => category.group === group
+    ).map((category) => category.id);
+
+    const settings = normalizeSettings({
+      selectedCategoryIds: [],
+      selectedCategoryGroups: [group, "missing"]
+    });
+
+    expect(settings.selectedCategoryGroups).toEqual([group]);
+    expect(settings.selectedCategoryIds).toEqual(expectedIds);
+  });
+
+  it("keeps the prior child selection snapshot for locked category groups", () => {
+    const group = POI_CATEGORIES.find((category) => category.id === "station")!
+      .group;
+    const expectedIds = POI_CATEGORIES.filter(
+      (category) => category.group === group
+    ).map((category) => category.id);
+
+    const settings = normalizeSettings({
+      selectedCategoryIds: [],
+      selectedCategoryGroups: [group],
+      categoryGroupSelectionSnapshots: {
+        [group]: ["station", "religion", "missing"]
+      }
+    });
+
+    expect(settings.selectedCategoryIds).toEqual(expectedIds);
+    expect(settings.categoryGroupSelectionSnapshots).toEqual({
+      [group]: ["station"]
+    });
   });
 
   it("falls back to light mode when the persisted theme is invalid", () => {
@@ -115,6 +158,8 @@ describe("settings helpers", () => {
       showSectors: false,
       showHoneycomb: true,
       selectedCategoryIds: ["religion", "station"],
+      selectedCategoryGroups: [],
+      categoryGroupSelectionSnapshots: {},
       theme: "dark",
       mapLayer: "terrain"
     });
@@ -127,6 +172,8 @@ describe("settings helpers", () => {
     expect(loaded.showSectors).toBe(false);
     expect(loaded.showHoneycomb).toBe(true);
     expect(loaded.selectedCategoryIds).toEqual(["religion", "station"]);
+    expect(loaded.selectedCategoryGroups).toEqual([]);
+    expect(loaded.categoryGroupSelectionSnapshots).toEqual({});
     expect(loaded.theme).toBe("dark");
     expect(loaded.mapLayer).toBe("terrain");
   });

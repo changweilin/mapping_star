@@ -18,6 +18,8 @@ export interface AppSettings {
   showSectors: boolean;
   showHoneycomb: boolean;
   selectedCategoryIds: string[];
+  selectedCategoryGroups: string[];
+  categoryGroupSelectionSnapshots: Record<string, string[]>;
   theme: ThemeMode;
   mapLayer: MapLayerId;
 }
@@ -34,6 +36,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showSectors: true,
   showHoneycomb: false,
   selectedCategoryIds: DEFAULT_CATEGORY_IDS,
+  selectedCategoryGroups: [],
+  categoryGroupSelectionSnapshots: {},
   theme: "light",
   mapLayer: "street"
 };
@@ -74,15 +78,72 @@ const parseMapLayer = (value: unknown): MapLayerId =>
     ? value
     : DEFAULT_APP_SETTINGS.mapLayer;
 
-const parseCategoryIds = (value: unknown) => {
+const CATEGORY_GROUPS = [
+  ...new Set(POI_CATEGORIES.map((category) => category.group))
+];
+const CATEGORY_IDS_BY_GROUP = new Map(
+  CATEGORY_GROUPS.map((group) => [
+    group,
+    POI_CATEGORIES.filter((category) => category.group === group).map(
+      (category) => category.id
+    )
+  ])
+);
+
+const parseCategoryGroups = (value: unknown) => {
+  const availableGroups = new Set(CATEGORY_GROUPS);
+  const groups = Array.isArray(value)
+    ? value.filter(
+        (group): group is string =>
+          typeof group === "string" && availableGroups.has(group)
+      )
+    : [];
+
+  return [...new Set(groups)];
+};
+
+const getCategoryIdsForGroups = (groups: string[]) =>
+  groups.flatMap((group) => CATEGORY_IDS_BY_GROUP.get(group) ?? []);
+
+const parseCategoryGroupSelectionSnapshots = (
+  value: unknown,
+  selectedCategoryGroups: string[]
+) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  const selectedGroupSet = new Set(selectedCategoryGroups);
+  const snapshots: Record<string, string[]> = {};
+
+  for (const [group, ids] of Object.entries(value as Record<string, unknown>)) {
+    if (!selectedGroupSet.has(group)) continue;
+
+    const groupCategoryIdSet = new Set(CATEGORY_IDS_BY_GROUP.get(group) ?? []);
+    snapshots[group] = Array.isArray(ids)
+      ? [
+          ...new Set(
+            ids.filter(
+              (id): id is string =>
+                typeof id === "string" && groupCategoryIdSet.has(id)
+            )
+          )
+        ]
+      : [];
+  }
+
+  return snapshots;
+};
+
+const parseCategoryIds = (value: unknown, selectedCategoryGroups: string[]) => {
   const availableIds = new Set(POI_CATEGORIES.map((category) => category.id));
   const ids = Array.isArray(value)
     ? value.filter(
         (id): id is string => typeof id === "string" && availableIds.has(id)
       )
     : [];
+  const groupCategoryIds = getCategoryIdsForGroups(selectedCategoryGroups);
+  const mergedIds = [...new Set([...ids, ...groupCategoryIds])];
 
-  return ids.length > 0 ? [...new Set(ids)] : DEFAULT_CATEGORY_IDS;
+  return mergedIds.length > 0 ? mergedIds : DEFAULT_CATEGORY_IDS;
 };
 
 export const normalizeSettings = (value: unknown): AppSettings => {
@@ -104,6 +165,14 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     outerRadiusKm - 1,
     DEFAULT_APP_SETTINGS.innerRadiusKm
   );
+  const selectedCategoryGroups = parseCategoryGroups(
+    source.selectedCategoryGroups
+  );
+  const categoryGroupSelectionSnapshots =
+    parseCategoryGroupSelectionSnapshots(
+      source.categoryGroupSelectionSnapshots,
+      selectedCategoryGroups
+    );
 
   return {
     innerRadiusKm,
@@ -143,7 +212,12 @@ export const normalizeSettings = (value: unknown): AppSettings => {
       typeof source.showHoneycomb === "boolean"
         ? source.showHoneycomb
         : DEFAULT_APP_SETTINGS.showHoneycomb,
-    selectedCategoryIds: parseCategoryIds(source.selectedCategoryIds),
+    selectedCategoryIds: parseCategoryIds(
+      source.selectedCategoryIds,
+      selectedCategoryGroups
+    ),
+    selectedCategoryGroups,
+    categoryGroupSelectionSnapshots,
     theme: parseTheme(source.theme),
     mapLayer: parseMapLayer(source.mapLayer)
   };
