@@ -1281,6 +1281,89 @@ export const makeMagicCircleStrokes = (
     }
   };
 
+  const addElementPointLineEffects = ({
+    lineWeight = element.lineStyle === "radiant" ? 3.35 : 3,
+    lineOpacity = 0.92,
+    spokeWeight = 1,
+    spokeOpacity = 0.5,
+    pointRadiusScale = 0.025,
+    pointOpacity = 0.72,
+    endpointSizePx = 44,
+    endpointOpacity = 1,
+    endpointAdvance = 0.24
+  }: {
+    lineWeight?: number;
+    lineOpacity?: number;
+    spokeWeight?: number;
+    spokeOpacity?: number;
+    pointRadiusScale?: number;
+    pointOpacity?: number;
+    endpointSizePx?: number;
+    endpointOpacity?: number;
+    endpointAdvance?: number;
+  } = {}) => {
+    getMagicStarLineSequences(mode, combinedShape).forEach(
+      (sequencePoints, index) => {
+        pushPolyline(
+          `star-line-${index}`,
+          sequencePoints.map((pointIndex) =>
+            pointFromPoi(result.points[pointIndex])
+          ),
+          "star-line magic-element-link star-line--draw",
+          element.primary,
+          lineWeight,
+          lineOpacity,
+          980,
+          1.25
+        );
+      }
+    );
+
+    result.points.forEach((point, index) => {
+      const bearing = starRayBearings[index] ?? phaseDeg + index * modeSlotDeg;
+      const position = pointFromPoi(point);
+
+      pushPolyline(
+        `spoke-${index}`,
+        [
+          destinationPoint(result.center, radiusMeters * 0.46, bearing),
+          position
+        ],
+        "magic-stroke magic-spoke magic-element-link magic-stroke--draw",
+        index % 2 === 0 ? element.accent : element.primary,
+        spokeWeight,
+        spokeOpacity,
+        520,
+        0.5
+      );
+
+      pushCircleAt(
+        `element-point-${index}`,
+        position,
+        radiusMeters * pointRadiusScale,
+        index % 2 === 0 ? element.pale : element.accent,
+        1.05,
+        pointOpacity,
+        420,
+        "magic-circle magic-element-point magic-circle--draw",
+        0.2
+      );
+
+      pushSymbol(
+        `endpoint-symbol-${index}`,
+        position,
+        "endpoint",
+        element.endpointSymbol,
+        endpointSizePx,
+        index % 2 === 0 ? element.accent : element.primary,
+        endpointOpacity,
+        520,
+        bearing,
+        endpointAdvance
+      );
+    });
+  };
+
   const addBaseGeometry = () => {
     const foundationClass = `magic-stroke magic-foundation magic-foundation--${element.baseGeometry} magic-stroke--draw`;
 
@@ -1756,6 +1839,18 @@ export const makeMagicCircleStrokes = (
       geometryPattern === "sierpinski" ? 30 : 0
     );
 
+    addElementPointLineEffects({
+      lineWeight: element.lineStyle === "radiant" ? 2.85 : 2.55,
+      lineOpacity: 0.74,
+      spokeWeight: 0.9,
+      spokeOpacity: 0.42,
+      pointRadiusScale: 0.021,
+      pointOpacity: 0.66,
+      endpointSizePx: 38,
+      endpointOpacity: 0.92,
+      endpointAdvance: 0.18
+    });
+
     for (let index = 0; index < MAGIC_ANIMATION_COUNT; index += 1) {
       const bearing =
         phaseDeg + (FULL_CIRCLE_DEGREES * index) / MAGIC_ANIMATION_COUNT;
@@ -1825,22 +1920,7 @@ export const makeMagicCircleStrokes = (
     return strokes;
   }
 
-  getMagicStarLineSequences(mode, combinedShape).forEach(
-    (sequencePoints, index) => {
-      pushPolyline(
-        `star-line-${index}`,
-        sequencePoints.map((pointIndex) =>
-          pointFromPoi(result.points[pointIndex])
-        ),
-        "star-line star-line--draw",
-        element.primary,
-        element.lineStyle === "radiant" ? 3.35 : 3,
-        0.92,
-        980,
-        1.25
-      );
-    }
-  );
+  addElementPointLineEffects();
 
   pushPolyline(
     "outer-polygon",
@@ -2019,23 +2099,6 @@ export const makeMagicCircleStrokes = (
     0.54,
     760
   );
-
-  result.points.forEach((point, index) => {
-    const bearing = starRayBearings[index] ?? phaseDeg + index * modeSlotDeg;
-    pushPolyline(
-      `spoke-${index}`,
-      [
-        destinationPoint(result.center, radiusMeters * 0.46, bearing),
-        pointFromPoi(point)
-      ],
-      "magic-stroke magic-spoke magic-stroke--draw",
-      index % 2 === 0 ? element.accent : element.primary,
-      1,
-      0.5,
-      520,
-      0.5
-    );
-  });
 
   for (let index = 0; index < MAGIC_ANIMATION_COUNT; index += 1) {
     const bearing =
@@ -2398,22 +2461,6 @@ export const makeMagicCircleStrokes = (
     phaseDeg,
     0.52
   );
-
-  result.points.forEach((point, index) => {
-    const bearing = starRayBearings[index] ?? phaseDeg + index * modeSlotDeg;
-    pushSymbol(
-      `endpoint-symbol-${index}`,
-      pointFromPoi(point),
-      "endpoint",
-      element.endpointSymbol,
-      44,
-      index % 2 === 0 ? element.accent : element.primary,
-      1,
-      520,
-      bearing,
-      0.24
-    );
-  });
 
   const ambientCount = element.ambientEffect === "ghosts" ? 9 : 8;
   for (let index = 0; index < ambientCount; index += 1) {

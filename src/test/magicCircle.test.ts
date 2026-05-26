@@ -176,12 +176,18 @@ describe("magic circle animations", () => {
       );
       expect(
         strokes.some((stroke) => stroke.className.includes("star-line"))
-      ).toBe(false);
+      ).toBe(true);
       expect(
         strokes.some(
           (stroke) => stroke.kind === "symbol" && stroke.role === "endpoint"
         )
-      ).toBe(false);
+      ).toBe(true);
+      expect(
+        strokes.filter((stroke) => stroke.id.startsWith("spoke-"))
+      ).toHaveLength(result.mode);
+      expect(
+        strokes.filter((stroke) => stroke.id.startsWith("element-point-"))
+      ).toHaveLength(result.mode);
       expect(strokes.some((stroke) => stroke.id === "center-symbol")).toBe(
         true
       );
@@ -230,8 +236,49 @@ describe("magic circle animations", () => {
         strokes.some(
           (stroke) => stroke.kind === "symbol" && stroke.role === "endpoint"
         )
-      ).toBe(false);
+      ).toBe(true);
+      expect(
+        strokes.some((stroke) => stroke.className.includes("star-line"))
+      ).toBe(true);
+      expect(
+        strokes.filter((stroke) => stroke.id.startsWith("spoke-"))
+      ).toHaveLength(result.mode);
+      expect(
+        strokes.filter((stroke) => stroke.id.startsWith("element-point-"))
+      ).toHaveLength(result.mode);
     });
+  });
+
+  it("adds element point and line effects to every geometry variant", () => {
+    const variants = [
+      ["combined", {}],
+      ["rose", {}],
+      ["sierpinski", {}],
+      ["zodiac", { zodiacIndex: 3 }]
+    ] as const;
+
+    for (const mode of [5, 6] as const) {
+      const result = makeResult(mode);
+
+      for (const [pattern, options] of variants) {
+        const strokes = makeMagicCircleStrokes(result, 6, pattern, options);
+
+        expect(
+          strokes.some((stroke) => stroke.className.includes("star-line"))
+        ).toBe(true);
+        expect(
+          strokes.filter((stroke) => stroke.id.startsWith("spoke-"))
+        ).toHaveLength(mode);
+        expect(
+          strokes.filter((stroke) => stroke.id.startsWith("element-point-"))
+        ).toHaveLength(mode);
+        expect(
+          strokes.filter(
+            (stroke) => stroke.kind === "symbol" && stroke.role === "endpoint"
+          )
+        ).toHaveLength(mode);
+      }
+    }
   });
 
   it("applies numeric drawing variants to rose and Sierpinski geometry", () => {
