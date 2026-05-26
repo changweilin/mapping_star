@@ -47,6 +47,15 @@ export interface StarResult {
   createdAt: string;
 }
 
+export interface StarResultAggregateStats {
+  count: number;
+  averageRadiusMeters: number;
+  averageCircumferenceErrorMeters: number;
+  averageAngleErrorDeg: number;
+  averageCenterErrorMeters: number;
+  averageScore: number;
+}
+
 export interface FavoritePoi {
   id: string;
   type: "poi";

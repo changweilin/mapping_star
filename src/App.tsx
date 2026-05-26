@@ -40,6 +40,7 @@ import {
 import { MarqueeSelect } from "./components/MarqueeSelect";
 import { PlaceCandidateList } from "./components/PlaceCandidateList";
 import { RadiusRangeControl } from "./components/RadiusRangeControl";
+import { ResultAggregateSummary } from "./components/ResultAggregateSummary";
 import { ResultMetric } from "./components/ResultMetric";
 import { SelectedPoiDetail } from "./components/SelectedPoiDetail";
 import { POI_CATEGORIES } from "./data/categories";
@@ -115,6 +116,7 @@ import type {
   Poi,
   SearchStrategy,
   StarMode,
+  StarResultAggregateStats,
   StarResult
 } from "./types";
 
@@ -348,15 +350,6 @@ type CompletionNotice = {
   title: string;
   message: string;
 };
-type StarResultAggregateStats = {
-  count: number;
-  averageRadiusMeters: number;
-  averageCircumferenceErrorMeters: number;
-  averageAngleErrorDeg: number;
-  averageCenterErrorMeters: number;
-  averageScore: number;
-};
-
 type MapTileLayerConfig = {
   url: string;
   options: L.TileLayerOptions;
@@ -4579,46 +4572,7 @@ function App() {
           ) : (
             <>
               {resultAggregateStats && (
-                <div className="result-summary">
-                  <div className="subsection-title">
-                    <Sparkles aria-hidden="true" />
-                    <strong>平均統計</strong>
-                  </div>
-                  <div className="metrics-row">
-                    <ResultMetric
-                      label="結果數"
-                      value={`${resultAggregateStats.count} 組`}
-                    />
-                    <ResultMetric
-                      label="平均半徑"
-                      value={formatDistance(
-                        resultAggregateStats.averageRadiusMeters
-                      )}
-                    />
-                    <ResultMetric
-                      label="平均圓周誤差"
-                      value={formatDistance(
-                        resultAggregateStats.averageCircumferenceErrorMeters
-                      )}
-                    />
-                    <ResultMetric
-                      label="平均角度誤差"
-                      value={`${resultAggregateStats.averageAngleErrorDeg.toFixed(
-                        1
-                      )}°`}
-                    />
-                    <ResultMetric
-                      label="平均中心誤差"
-                      value={formatDistance(
-                        resultAggregateStats.averageCenterErrorMeters
-                      )}
-                    />
-                    <ResultMetric
-                      label="平均分數"
-                      value={resultAggregateStats.averageScore.toFixed(3)}
-                    />
-                  </div>
-                </div>
+                <ResultAggregateSummary stats={resultAggregateStats} />
               )}
               <div className="result-toolbar">
                 <div
