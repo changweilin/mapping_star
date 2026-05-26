@@ -67,4 +67,41 @@ describe("honeycomb search profiles", () => {
       sierpinski.targetBands.some((band) => band.id === "inner-triangles")
     ).toBe(true);
   });
+
+  it("anchors new magic profiles to explicit feature target nodes", () => {
+    const rose = getHoneycombSearchProfile({
+      shape: "rose",
+      variantId: "k-4",
+      mode: 5
+    });
+    const sierpinski = getHoneycombSearchProfile({
+      shape: "sierpinski",
+      variantId: "d-4",
+      mode: 5
+    });
+    const zodiac = getHoneycombSearchProfile({
+      shape: "zodiac",
+      variantId: "2",
+      mode: 5
+    });
+
+    expect(rose.targetNodes).toHaveLength(8);
+    expect(rose.targetNodes.map((node) => node.bearingDeg)).toContain(45);
+    expect(rose.rotationSpanDeg).toBe(45);
+    expect(rose.targetNodes.every((node) => node.radiusScale === 0.56)).toBe(
+      true
+    );
+
+    expect(sierpinski.targetNodes).toHaveLength(15);
+    expect(sierpinski.rotationSpanDeg).toBe(120);
+    expect(
+      sierpinski.targetNodes.some((node) => node.radiusScale > 0.8)
+    ).toBe(true);
+
+    expect(zodiac.targetNodes).toHaveLength(7);
+    expect(zodiac.targetNodes[0].id).toBe("zodiac-taurus-1");
+    expect(new Set(zodiac.targetNodes.map((node) => node.radiusScale)).size).toBeGreaterThan(
+      1
+    );
+  });
 });

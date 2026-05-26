@@ -36,6 +36,15 @@ interface SolveOptions {
   searchStrategy?: SearchStrategy;
   hexCellRadiusMeters?: number;
   hexPriorityRings?: number;
+  targetNodes?: SearchTargetNode[];
+  targetRotationSpanDeg?: number;
+}
+
+export interface SearchTargetNode {
+  id: string;
+  label?: string;
+  radiusScale: number;
+  bearingDeg: number;
 }
 
 interface Evaluation {
@@ -76,6 +85,14 @@ interface StarEdgeSegment {
   to: PlanarPoint;
 }
 
+interface ResolvedSearchTarget {
+  index: number;
+  id: string;
+  distanceMeters: number;
+  bearingDeg: number;
+  point: PlanarPoint;
+}
+
 type RankedStarResult = StarResult & {
   searchPriorityScore: number;
 };
@@ -104,6 +121,18 @@ const getTargets = (mode: StarMode, rotationDeg: number) =>
     normalizeDegrees(rotationDeg + (360 / mode) * index)
   );
 
+const makeRotations = (rotationSpanDeg: number, rotationStepDeg: number) => {
+  const span = Math.max(1, Math.min(360, rotationSpanDeg));
+  const step = Math.max(1, Math.min(span, rotationStepDeg));
+  const rotations: number[] = [];
+
+  for (let rotationDeg = 0; rotationDeg < span; rotationDeg += step) {
+    rotations.push(rotationDeg);
+  }
+
+  return rotations.length > 0 ? rotations : [0];
+};
+
 const HEX_DIRECTIONS: HexCell[] = [
   { q: 1, r: 0 },
   { q: 1, r: -1 },
@@ -125,6 +154,9 @@ const toPlanarPoint = (distanceMeters: number, bearingDeg: number) => {
     y: distanceMeters * Math.cos(bearing)
   };
 };
+
+const planarDistanceMeters = (first: PlanarPoint, second: PlanarPoint) =>
+  Math.hypot(first.x - second.x, first.y - second.y);
 
 const hexKey = ({ q, r }: HexCell) => `${q},${r}`;
 
@@ -547,6 +579,209 @@ const getAngularSlotCandidates = (
     .slice(0, limit)
     .map(({ poi }) => poi);
 
+const getSearchTargetNodes = (targetNodes?: SearchTargetNode[]) =>
+  (targetNodes ?? [])
+    .filter(
+      (node) =>
+        Number.isFinite(node.radiusScale) &&
+        node.radiusScale > 0 &&
+        Number.isFinite(node.bearingDeg)
+    )
+    .map((node) => ({
+      ...node,
+      radiusScale: Math.max(0.02, node.radiusScale),
+      bearingDeg: normalizeDegrees(node.bearingDeg)
+    }));
+
+const resolveSearchTargets = (
+  targetNodes: SearchTargetNode[],
+  baseRadiusMeters: number,
+  rotationDeg: number
+): ResolvedSearchTarget[] =>
+  targetNodes.map((node, index) => {
+    const distanceMeters = Math.max(1, baseRadiusMeters * node.radiusScale);
+    const bearingDeg = normalizeDegrees(rotationDeg + node.bearingDeg);
+    return {
+      index,
+      id: node.id,
+      distanceMeters,
+      bearingDeg,
+      point: toPlanarPoint(distanceMeters, bearingDeg)
+    };
+  });
+
+const rankTargetCandidates = (
+  candidates: Poi[],
+  target: ResolvedSearchTarget,
+  context?: HoneycombContext,
+  targetCell?: HexCell
+) =>
+  candidates
+    .map((poi) => {
+      const point = toPlanarPoint(poi.distanceMeters, poi.bearingDeg);
+      const honeycombPoint = context?.pointsById.get(poi.id);
+      return {
+        poi,
+        distanceErrorMeters: planarDistanceMeters(point, target.point),
+        angleErrorDeg: angularDifferenceDegrees(
+          poi.bearingDeg,
+          target.bearingDeg
+        ),
+        radialErrorMeters: Math.abs(poi.distanceMeters - target.distanceMeters),
+        cornerRing:
+          honeycombPoint && targetCell
+            ? hexDistance(honeycombPoint.cell, targetCell)
+            : 0
+      };
+    })
+    .sort((a, b) => {
+      const cornerDelta = a.cornerRing - b.cornerRing;
+      if (cornerDelta !== 0) return cornerDelta;
+
+      const distanceDelta = a.distanceErrorMeters - b.distanceErrorMeters;
+      if (Math.abs(distanceDelta) > 0.001) return distanceDelta;
+
+      const radialDelta = a.radialErrorMeters - b.radialErrorMeters;
+      if (Math.abs(radialDelta) > 0.001) return radialDelta;
+
+      return a.angleErrorDeg - b.angleErrorDeg;
+    });
+
+const getTargetAngularSlotCandidates = (
+  prepared: Poi[],
+  target: ResolvedSearchTarget,
+  toleranceDeg: number,
+  limit: number
+) =>
+  rankTargetCandidates(
+    prepared.filter(
+      (poi) =>
+        angularDifferenceDegrees(poi.bearingDeg, target.bearingDeg) <=
+        toleranceDeg
+    ),
+    target
+  )
+    .slice(0, limit)
+    .map(({ poi }) => poi);
+
+const getTargetHoneycombSlotCandidates = (
+  context: HoneycombContext,
+  target: ResolvedSearchTarget,
+  toleranceDeg: number,
+  limit: number,
+  maxRing: number,
+  minRing = 0
+) => {
+  const targetCell = pointToHex(target.point, context.cellRadiusMeters);
+  const cellSearchRadiusMeters =
+    context.cellRadiusMeters * (Math.max(0, maxRing) + 1.35);
+
+  return rankTargetCandidates(
+    collectHoneycombPoints(context, targetCell, maxRing, minRing)
+      .filter((point) => {
+        const distanceError = planarDistanceMeters(point, target.point);
+        return (
+          distanceError <= cellSearchRadiusMeters ||
+          angularDifferenceDegrees(
+            point.poi.bearingDeg,
+            target.bearingDeg
+          ) <= toleranceDeg
+        );
+      })
+      .map((point) => point.poi),
+    target,
+    context,
+    targetCell
+  )
+    .slice(0, limit)
+    .map(({ poi }) => poi);
+};
+
+const getTargetHoneycombFallbackSlotCandidates = (
+  prepared: Poi[],
+  context: HoneycombContext,
+  target: ResolvedSearchTarget,
+  limit: number
+) => {
+  const targetCell = pointToHex(target.point, context.cellRadiusMeters);
+
+  return rankTargetCandidates(prepared, target, context, targetCell)
+    .slice(0, limit)
+    .map(({ poi }) => poi);
+};
+
+const assignTargetCandidates = (
+  slots: Poi[][],
+  targets: ResolvedSearchTarget[]
+) => {
+  if (slots.some((slot) => slot.length === 0)) return null;
+
+  const assigned: Poi[] = [];
+  const used = new Set<string>();
+  const orderedTargetIndexes = targets
+    .map((target) => target.index)
+    .sort((a, b) => slots[a].length - slots[b].length || a - b);
+
+  for (const targetIndex of orderedTargetIndexes) {
+    const candidate = slots[targetIndex].find((poi) => !used.has(poi.id));
+    if (!candidate) return null;
+
+    assigned[targetIndex] = candidate;
+    used.add(candidate.id);
+  }
+
+  return targets.every((target) => Boolean(assigned[target.index]))
+    ? assigned
+    : null;
+};
+
+const evaluateTargetLayout = (
+  points: Poi[],
+  targets: ResolvedSearchTarget[],
+  targetRadiusMeters: number
+): Evaluation => {
+  const planarPoints = points.map((point) =>
+    toPlanarPoint(point.distanceMeters, point.bearingDeg)
+  );
+  const distanceErrors = planarPoints.map((point, index) =>
+    planarDistanceMeters(point, targets[index].point)
+  );
+  const angleErrors = points.map((point, index) =>
+    angularDifferenceDegrees(point.bearingDeg, targets[index].bearingDeg)
+  );
+  const meanDistanceErrorMeters =
+    distanceErrors.reduce((total, error) => total + error, 0) /
+    distanceErrors.length;
+  const angleErrorDeg =
+    angleErrors.reduce((total, error) => total + error, 0) /
+    angleErrors.length;
+  const actualCenter = planarPoints.reduce(
+    (total, point) => ({
+      x: total.x + point.x / planarPoints.length,
+      y: total.y + point.y / planarPoints.length
+    }),
+    { x: 0, y: 0 }
+  );
+  const targetCenter = targets.reduce(
+    (total, target) => ({
+      x: total.x + target.point.x / targets.length,
+      y: total.y + target.point.y / targets.length
+    }),
+    { x: 0, y: 0 }
+  );
+  const radiusNormalizer = Math.max(1, targetRadiusMeters);
+
+  return {
+    score:
+      (meanDistanceErrorMeters / radiusNormalizer) * 0.82 +
+      (angleErrorDeg / 180) * 0.18,
+    radiusMeanMeters: targetRadiusMeters,
+    radiusStdMeters: meanDistanceErrorMeters,
+    angleErrorDeg,
+    centerErrorMeters: planarDistanceMeters(actualCenter, targetCenter)
+  };
+};
+
 const getHoneycombSlotCandidates = (
   context: HoneycombContext,
   target: number,
@@ -626,7 +861,9 @@ export function* solveStarFromPoisSteps(
     minDistanceMeters = 30,
     searchStrategy = DEFAULT_SOLVER_SEARCH_STRATEGY,
     hexCellRadiusMeters,
-    hexPriorityRings
+    hexPriorityRings,
+    targetNodes,
+    targetRotationSpanDeg
   }: SolveOptions
 ): Generator<SolveProgress, StarResult[]> {
   const minimumRadiusMeters = Math.max(minDistanceMeters, innerRadiusMeters);
@@ -635,8 +872,14 @@ export function* solveStarFromPoisSteps(
       poi.distanceMeters >= minimumRadiusMeters &&
       poi.distanceMeters <= radiusMeters
   );
+  const searchTargetNodes = getSearchTargetNodes(targetNodes);
 
-  if (prepared.length < mode) return [];
+  if (
+    prepared.length <
+    (searchTargetNodes.length > 0 ? searchTargetNodes.length : mode)
+  ) {
+    return [];
+  }
 
   const results: RankedStarResult[] = [];
   const slotWidth = 360 / mode;
@@ -667,11 +910,7 @@ export function* solveStarFromPoisSteps(
           hexPriorityRings
         )
       : null;
-  const rotations: number[] = [];
-
-  for (let rotationDeg = 0; rotationDeg < slotWidth; rotationDeg += step) {
-    rotations.push(rotationDeg);
-  }
+  const rotations = makeRotations(slotWidth, step);
 
   const addResultsFromSlots = (
     slots: Poi[][],
@@ -727,6 +966,195 @@ export function* solveStarFromPoisSteps(
       bestResult: publicResults[0] ?? null
     };
   };
+
+  if (searchTargetNodes.length > 0) {
+    const targetRadiusMeters = getTargetRadiusMeters(
+      radiusMeters,
+      innerRadiusMeters
+    );
+    const targetRotationSpan = Math.max(
+      1,
+      Math.min(360, targetRotationSpanDeg ?? slotWidth)
+    );
+    const targetStep = Math.max(
+      1,
+      Math.min(
+        targetRotationSpan,
+        rotationStepDeg ?? defaultRotationStepForMode(mode)
+      )
+    );
+    const targetRotations = makeRotations(targetRotationSpan, targetStep);
+
+    const addTargetResultFromSlots = (
+      slots: Poi[][],
+      targets: ResolvedSearchTarget[],
+      rotationDeg: number,
+      searchPriorityOffset = 0
+    ) => {
+      const points = assignTargetCandidates(slots, targets);
+      if (!points) return;
+
+      const evaluated = evaluateTargetLayout(
+        points,
+        targets,
+        targetRadiusMeters
+      );
+      insertBest(
+        results,
+        {
+          id: `magic-target-${mode}-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2)}`,
+          mode,
+          center,
+          points,
+          rotationDeg,
+          createdAt: new Date().toISOString(),
+          ...evaluated
+        },
+        resultPool,
+        searchPriorityOffset + evaluated.score
+      );
+    };
+
+    if (honeycombContext) {
+      const totalSteps =
+        targetRotations.length +
+        targetRotations.length * honeycombContext.priorityRings * 2 +
+        targetRotations.length;
+      const addTargetHoneycombStageResults = (
+        rotationDeg: number,
+        maxRing: number,
+        minRing = 0
+      ) => {
+        const targets = resolveSearchTargets(
+          searchTargetNodes,
+          targetRadiusMeters,
+          rotationDeg
+        );
+        const slots = targets.map((target) =>
+          getTargetHoneycombSlotCandidates(
+            honeycombContext,
+            target,
+            toleranceDeg,
+            slotCandidateLimit,
+            maxRing,
+            minRing
+          )
+        );
+
+        addTargetResultFromSlots(
+          slots,
+          targets,
+          rotationDeg,
+          searchPriorityStep
+        );
+        searchPriorityStep += 1;
+      };
+
+      for (const [rotationIndex, rotationDeg] of targetRotations.entries()) {
+        addTargetHoneycombStageResults(rotationDeg, 0);
+        yield makeProgress(
+          rotationIndex === 0 ? "target-corners" : "target-rotation",
+          rotationIndex === 0
+            ? `第 1 到 ${searchTargetNodes.length} 號目標節點蜂巢`
+            : `目標節點旋轉 ${rotationIndex + 1}/${
+                targetRotations.length
+              }`,
+          totalSteps
+        );
+      }
+
+      for (let ring = 1; ring <= honeycombContext.priorityRings; ring += 1) {
+        for (const [rotationIndex, rotationDeg] of targetRotations.entries()) {
+          addTargetHoneycombStageResults(rotationDeg, ring);
+          yield makeProgress(
+            "radius-expansion",
+            `目標節點蜂巢擴張第 ${ring} 圈 ${rotationIndex + 1}/${
+              targetRotations.length
+            }`,
+            totalSteps
+          );
+        }
+
+        for (const [rotationIndex, rotationDeg] of targetRotations.entries()) {
+          addTargetHoneycombStageResults(rotationDeg, ring, ring);
+          yield makeProgress(
+            "radius-expansion",
+            `目標節點蜂巢環帶第 ${ring} 圈 ${rotationIndex + 1}/${
+              targetRotations.length
+            }`,
+            totalSteps
+          );
+        }
+      }
+
+      for (const [rotationIndex, rotationDeg] of targetRotations.entries()) {
+        const targets = resolveSearchTargets(
+          searchTargetNodes,
+          targetRadiusMeters,
+          rotationDeg
+        );
+        const fallbackSlots = targets.map((target) =>
+          getTargetHoneycombFallbackSlotCandidates(
+            prepared,
+            honeycombContext,
+            target,
+            slotCandidateLimit
+          )
+        );
+
+        addTargetResultFromSlots(
+          fallbackSlots,
+          targets,
+          rotationDeg,
+          searchPriorityStep
+        );
+        searchPriorityStep += 1;
+        yield makeProgress(
+          "fallback",
+          `目標節點全域補搜 ${rotationIndex + 1}/${
+            targetRotations.length
+          }`,
+          totalSteps
+        );
+      }
+
+      return toPublicResults(results, maxResults);
+    }
+
+    const totalSteps = targetRotations.length;
+    for (const [rotationIndex, rotationDeg] of targetRotations.entries()) {
+      const targets = resolveSearchTargets(
+        searchTargetNodes,
+        targetRadiusMeters,
+        rotationDeg
+      );
+      const slots = targets.map((target) =>
+        getTargetAngularSlotCandidates(
+          prepared,
+          target,
+          toleranceDeg,
+          slotCandidateLimit
+        )
+      );
+
+      addTargetResultFromSlots(
+        slots,
+        targets,
+        rotationDeg,
+        searchPriorityStep
+      );
+      searchPriorityStep += 1;
+      yield makeProgress(
+        "angular",
+        `目標節點角度搜索 ${rotationIndex + 1}/${targetRotations.length}`,
+        totalSteps
+      );
+    }
+
+    return toPublicResults(results, maxResults);
+  }
 
   if (honeycombContext) {
     const totalSteps =

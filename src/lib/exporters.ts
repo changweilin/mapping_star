@@ -22,6 +22,11 @@ const uniquePois = (pois: Poi[], stars: StarResult[]) => {
 const starName = (star: StarResult, index: number) =>
   star.name ?? `${starModeLabel(star.mode)} ${index + 1}`;
 
+const exportLineSequences = (star: StarResult) =>
+  star.points.length === star.mode
+    ? starLineSequences(star.mode)
+    : [Array.from({ length: star.points.length }, (_point, index) => index)];
+
 export const exportGpx = (
   name: string,
   pois: Poi[],
@@ -38,7 +43,7 @@ export const exportGpx = (
 
   const routes = stars
     .flatMap((star, starIndex) => {
-      const sequences = starLineSequences(star.mode);
+      const sequences = exportLineSequences(star);
       return sequences.map((sequence, sequenceIndex) => {
         const points = sequence
           .map((pointIndex) => star.points[pointIndex])
@@ -87,7 +92,7 @@ export const exportKml = (
 
   const linePlacemarks = stars
     .flatMap((star, starIndex) => {
-      const sequences = starLineSequences(star.mode);
+      const sequences = exportLineSequences(star);
       return sequences.map((sequence, sequenceIndex) => {
         const coordinates = sequence
           .map((pointIndex) => star.points[pointIndex])

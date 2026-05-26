@@ -49,7 +49,8 @@ import {
 import {
   getHoneycombSearchProfile,
   type HoneycombSearchProfile,
-  type HoneycombTargetBand
+  type HoneycombTargetBand,
+  type HoneycombTargetNode
 } from "./lib/honeycombStrategy";
 import { loadLastStar, saveLastStar } from "./lib/lastStar";
 import {
@@ -178,9 +179,12 @@ const MAGIC_DRAW_VARIANT_OPTIONS = {
   ],
   cross: [makeCombinedVariant("4", "4", 4, "cross")],
   bagua: [makeCombinedVariant("8", "8", 8, "bagua")],
-  rose: [3, 5, 7, 9].map((petalFactor): MagicDrawVariantOption => ({
+  rose: [2, 3, 4, 5, 6, 7, 8, 9].map((petalFactor): MagicDrawVariantOption => ({
     id: `k-${petalFactor}`,
-    label: `k=${petalFactor}`,
+    label:
+      petalFactor % 2 === 0
+        ? `k=${petalFactor} (${petalFactor * 2}瓣)`
+        : `k=${petalFactor}`,
     geometryPattern: "rose",
     geometryOptions: { rosePetalFactor: petalFactor }
   })),
@@ -325,6 +329,8 @@ type HoneycombPreviewCell = {
   order: number;
   ring: number;
   center: LatLng;
+  targetCenter: LatLng;
+  targetLabel: string;
   polygon: LatLng[];
 };
 type HoneycombSearchBatch = {
@@ -340,7 +346,9 @@ type HoneycombPreviewParams = {
   rotationStepDeg: number;
   hexCellRadiusMeters: number;
   priorityRings: number;
+  rotationSpanDeg?: number;
   targetBands: HoneycombTargetBand[];
+  targetNodes: HoneycombTargetNode[];
 };
 type HoneycombSearchBatchParams = HoneycombPreviewParams & {
   initialCellCount: number;
@@ -1293,14 +1301,30 @@ const makeHoneycombPreviewCells = ({
   rotationStepDeg,
   hexCellRadiusMeters,
   priorityRings,
-  targetBands
+  rotationSpanDeg: targetRotationSpanDeg,
+  targetBands,
+  targetNodes
 }: HoneycombPreviewParams): HoneycombPreviewCell[] => {
   const activeTargetBands =
     targetBands.length > 0
       ? targetBands
       : [{ id: "perimeter", slots: mode, radius: "target" as const }];
+  const activeTargetNodes = targetNodes.filter(
+    (node) =>
+      Number.isFinite(node.radiusScale) &&
+      node.radiusScale > 0 &&
+      Number.isFinite(node.bearingDeg)
+  );
   const rotationSpanDeg = Math.min(
-    ...activeTargetBands.map((band) => 360 / Math.max(1, band.slots))
+    360,
+    Math.max(
+      1,
+      activeTargetNodes.length > 0
+        ? targetRotationSpanDeg ?? 360 / mode
+        : Math.min(
+            ...activeTargetBands.map((band) => 360 / Math.max(1, band.slots))
+          )
+    )
   );
   const step = Math.max(1, Math.min(rotationSpanDeg, rotationStepDeg));
   const cellRadiusMeters = normalizeHoneycombCellRadius(
@@ -1319,12 +1343,23 @@ const makeHoneycombPreviewCells = ({
     rotations.push(rotationDeg);
   }
 
-  const addCellsForRotation = (
-    rotationDeg: number,
-    maxRing: number,
-    minRing = 0
-  ) => {
-    for (const band of activeTargetBands) {
+  const makeTargetsForRotation = (rotationDeg: number) => {
+    if (activeTargetNodes.length > 0) {
+      return activeTargetNodes.map((node, index) => {
+        const targetBearing = normalizeDegrees(rotationDeg + node.bearingDeg);
+        const targetDistanceMeters = Math.max(
+          1,
+          targetRadiusMeters * node.radiusScale
+        );
+        return {
+          id: node.id,
+          label: node.label || `目標節點 ${index + 1}`,
+          point: makeHoneycombPlanarPoint(targetDistanceMeters, targetBearing)
+        };
+      });
+    }
+
+    return activeTargetBands.flatMap((band) => {
       const bandSlots = Math.max(1, band.slots);
       const slotWidth = 360 / bandSlots;
       const bandRadiusMeters =
@@ -1332,50 +1367,68 @@ const makeHoneycombPreviewCells = ({
           ? targetRadiusMeters
           : Math.max(1, outerRadiusMeters * band.radius);
 
-      for (let slotIndex = 0; slotIndex < bandSlots; slotIndex += 1) {
+      return Array.from({ length: bandSlots }, (_, slotIndex) => {
         const targetBearing = normalizeDegrees(
           rotationDeg + (band.phaseOffsetDeg ?? 0) + slotWidth * slotIndex
         );
-        const targetCell = honeycombPointToCell(
-          makeHoneycombPlanarPoint(bandRadiusMeters, targetBearing),
-          cellRadiusMeters
-        );
+        return {
+          id: `${band.id}-${slotIndex + 1}`,
+          label: `${band.id} ${slotIndex + 1}`,
+          point: makeHoneycombPlanarPoint(bandRadiusMeters, targetBearing)
+        };
+      });
+    });
+  };
 
-        for (let ring = minRing; ring <= maxRing; ring += 1) {
-          for (const cell of getHoneycombRing(targetCell, ring)) {
-            const key = getHoneycombCellKey(cell);
-            if (seen.has(key)) continue;
+  const addCellsForRotation = (
+    rotationDeg: number,
+    maxRing: number,
+    minRing = 0
+  ) => {
+    for (const target of makeTargetsForRotation(rotationDeg)) {
+      const targetCell = honeycombPointToCell(target.point, cellRadiusMeters);
+      const targetCenter = makeHoneycombLatLng(
+        center,
+        target.point.x,
+        target.point.y
+      );
 
-            const planarCenter = getHoneycombCellCenterPlanar(
-              cell,
-              cellRadiusMeters
-            );
-            const distanceFromCenter = Math.hypot(
-              planarCenter.x,
-              planarCenter.y
-            );
-            const overlapsSearchRange =
-              distanceFromCenter <= outerRadiusMeters + cellRadiusMeters &&
-              distanceFromCenter >=
-                Math.max(0, innerRadiusMeters - cellRadiusMeters);
-            if (!overlapsSearchRange) continue;
+      for (let ring = minRing; ring <= maxRing; ring += 1) {
+        for (const cell of getHoneycombRing(targetCell, ring)) {
+          const key = getHoneycombCellKey(cell);
+          if (seen.has(key)) continue;
 
-            seen.add(key);
-            const cellCenter = makeHoneycombLatLng(
-              center,
-              planarCenter.x,
-              planarCenter.y
-            );
-            cells.push({
-              key,
-              order: cells.length + 1,
-              ring,
-              center: cellCenter,
-              polygon: makeHoneycombPolygon(cellCenter, cellRadiusMeters)
-            });
+          const planarCenter = getHoneycombCellCenterPlanar(
+            cell,
+            cellRadiusMeters
+          );
+          const distanceFromCenter = Math.hypot(
+            planarCenter.x,
+            planarCenter.y
+          );
+          const overlapsSearchRange =
+            distanceFromCenter <= outerRadiusMeters + cellRadiusMeters &&
+            distanceFromCenter >=
+              Math.max(0, innerRadiusMeters - cellRadiusMeters);
+          if (!overlapsSearchRange) continue;
 
-            if (cells.length >= MAX_HONEYCOMB_PREVIEW_CELLS) return cells;
-          }
+          seen.add(key);
+          const cellCenter = makeHoneycombLatLng(
+            center,
+            planarCenter.x,
+            planarCenter.y
+          );
+          cells.push({
+            key,
+            order: cells.length + 1,
+            ring,
+            center: cellCenter,
+            targetCenter,
+            targetLabel: target.label,
+            polygon: makeHoneycombPolygon(cellCenter, cellRadiusMeters)
+          });
+
+          if (cells.length >= MAX_HONEYCOMB_PREVIEW_CELLS) return cells;
         }
       }
     }
@@ -1457,7 +1510,9 @@ const makeHoneycombSearchParams = ({
   rotationStepDeg,
   hexCellRadiusMeters,
   priorityRings: profile.priorityRings,
+  rotationSpanDeg: profile.rotationSpanDeg,
   targetBands: profile.targetBands,
+  targetNodes: profile.targetNodes,
   initialCellCount: profile.initialCellCount,
   cellsPerBatch: profile.cellsPerBatch
 });
@@ -2078,7 +2133,9 @@ function App() {
       rotationStepDeg,
       searchStrategy,
       hexCellRadiusMeters: hexCellRadiusKm * 1000,
-      hexPriorityRings: honeycombSearchProfile.priorityRings
+      hexPriorityRings: honeycombSearchProfile.priorityRings,
+      targetNodes: honeycombSearchProfile.targetNodes,
+      targetRotationSpanDeg: honeycombSearchProfile.rotationSpanDeg
     }),
     [
       candidatesPerSlot,
@@ -2087,6 +2144,8 @@ function App() {
       effectiveInnerRadiusMeters,
       hexCellRadiusKm,
       honeycombSearchProfile.priorityRings,
+      honeycombSearchProfile.rotationSpanDeg,
+      honeycombSearchProfile.targetNodes,
       outerRadiusMeters,
       rotationStepDeg,
       searchStrategy,
@@ -3366,12 +3425,17 @@ function App() {
           weight: cell.ring === 0 ? 1.35 : 1
         }
       ).addTo(group);
-      L.marker([cell.center.lat, cell.center.lng], {
+      L.marker([cell.targetCenter.lat, cell.targetCenter.lng], {
         icon: makeHoneycombOrderIcon(cell.order, isCompleted),
         interactive: false,
         keyboard: false,
         zIndexOffset: -900
-      }).addTo(group);
+      })
+        .bindTooltip(cell.targetLabel, {
+          direction: "top",
+          opacity: 0.78
+        })
+        .addTo(group);
     });
   }, [
     center,
@@ -3521,41 +3585,44 @@ function App() {
       );
     });
 
-    if (magicGeometryPattern === "combined") {
-      selectedResult.points.forEach((poi, index) => {
-        const marker = L.circleMarker([poi.lat, poi.lng], {
-          radius: 14,
-          color: magicElement.accent,
-          weight: 1,
-          opacity: 0.38,
-          fillColor: magicElement.pale,
-          fillOpacity: 0.2,
-          className: `star-point star-point--appear magic-element--${magicElement.id}`
-        })
-          .bindTooltip(`${index + 1}. ${poi.name}`, {
+    selectedResult.points.forEach((poi, index) => {
+      const marker = L.circleMarker([poi.lat, poi.lng], {
+        radius: magicGeometryPattern === "combined" ? 14 : 12,
+        color: magicElement.accent,
+        weight: 1,
+        opacity: 0.38,
+        fillColor: magicElement.pale,
+        fillOpacity: magicGeometryPattern === "combined" ? 0.2 : 0.26,
+        className: `star-point star-point--appear magic-element--${magicElement.id}`
+      })
+        .bindTooltip(
+          `${
+            magicGeometryPattern === "combined" ? "" : "目標 "
+          }${index + 1}. ${poi.name}`,
+          {
             direction: "bottom",
             offset: [0, 22],
             permanent: true,
             className: "star-label star-label--below"
-          })
-          .on("click", () => setSelectedPoi(poi))
-          .addTo(group);
-        const markerElement = marker.getElement() as SVGElement | null;
-        markerElement?.classList.add("magic-drawable");
-        if (markerElement) {
-          applyMagicMarkerTiming(
-            markerElement,
-            MAGIC_POINT_DELAY_MS + index * MAGIC_POINT_STEP_MS,
-            MAGIC_POINT_DURATION_MS,
-            magicSpeed,
-            magicPlaybackRef.current,
-            magicDirectionRef.current,
-            timelineDurationMs,
-            timelinePositionMs
-          );
-        }
-      });
-    }
+          }
+        )
+        .on("click", () => setSelectedPoi(poi))
+        .addTo(group);
+      const markerElement = marker.getElement() as SVGElement | null;
+      markerElement?.classList.add("magic-drawable");
+      if (markerElement) {
+        applyMagicMarkerTiming(
+          markerElement,
+          MAGIC_POINT_DELAY_MS + index * MAGIC_POINT_STEP_MS,
+          MAGIC_POINT_DURATION_MS,
+          magicSpeed,
+          magicPlaybackRef.current,
+          magicDirectionRef.current,
+          timelineDurationMs,
+          timelinePositionMs
+        );
+      }
+    });
   }, [
     magicAnimationIndex,
     magicDirection,
@@ -5204,7 +5271,11 @@ function App() {
                         <div className="result-expanded">
                           <div className="subsection-title">
                             <Sparkles aria-hidden="true" />
-                            <strong>星芒座標</strong>
+                            <strong>
+                              {magicGeometryPattern === "combined"
+                                ? "星芒座標"
+                                : "目標節點"}
+                            </strong>
                           </div>
                           <ol className="point-list">
                             {result.points.map((point, pointIndex) => (

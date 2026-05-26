@@ -209,6 +209,47 @@ describe("star solver", () => {
     );
   });
 
+  it("solves explicit magic target nodes instead of regular star slots", () => {
+    const targetNodes = [
+      { id: "tip-north", label: "North tip", radiusScale: 0.56, bearingDeg: 0 },
+      { id: "tip-east", label: "East tip", radiusScale: 0.56, bearingDeg: 90 },
+      {
+        id: "inner-southwest",
+        label: "Inner southwest",
+        radiusScale: 0.32,
+        bearingDeg: 225
+      }
+    ];
+    const targetRadiusMeters = 5000;
+    const targetPois = targetNodes.map((node, index) =>
+      makePoi(index, node.bearingDeg, targetRadiusMeters * node.radiusScale)
+    );
+    const unrelatedStarPois = [144, 216, 288].map((bearing, index) =>
+      makePoi(index + 20, bearing, 5000)
+    );
+
+    const results = solveStarFromPois([...unrelatedStarPois, ...targetPois], {
+      mode: 5,
+      center,
+      radiusMeters: 10000,
+      angleToleranceDeg: 30,
+      candidatesPerSlot: 1,
+      rotationStepDeg: 1,
+      searchStrategy: "honeycomb",
+      hexCellRadiusMeters: 700,
+      hexPriorityRings: 0,
+      targetNodes,
+      targetRotationSpanDeg: 1
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].points.map((point) => point.id)).toEqual(
+      targetPois.map((point) => point.id)
+    );
+    expect(results[0].radiusMeanMeters).toBe(targetRadiusMeters);
+    expect(results[0].radiusStdMeters).toBeLessThan(1);
+  });
+
   it("can still use the legacy angular strategy", () => {
     const nearCenterPoint = makePoi(0, 0, 7000);
     const cornerPoint = makePoi(100, 2, 14000);

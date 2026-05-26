@@ -64,4 +64,14 @@ describe("exporters", () => {
 
     expect(gpx).toContain("<name>台北101 1km 五芒星</name>");
   });
+
+  it("exports non-star target node results in their found order", () => {
+    const targetNodeResult = {
+      ...star,
+      points: [...pois, point(5, 25.5, 121.5)]
+    };
+    const gpx = exportGpx("Test", [], [targetNodeResult]);
+
+    expect(gpx).toContain("<rtept lat=\"25.5\" lon=\"121.5\">");
+  });
 });
