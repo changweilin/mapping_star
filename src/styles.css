@@ -1988,6 +1988,26 @@ a {
   color: var(--ink-soft);
   font-size: 12px;
   font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.map-completion-notice--error {
+  color: var(--error-ink);
+  background: color-mix(in srgb, var(--error-bg) 94%, transparent);
+  border-color: color-mix(in srgb, var(--error-line) 82%, var(--line));
+  box-shadow:
+    0 18px 48px rgba(30, 40, 55, 0.22),
+    0 0 0 4px color-mix(in srgb, var(--error-line) 24%, transparent);
+}
+
+.map-completion-notice--error .map-completion-notice__icon {
+  background: var(--error-ink);
+  border-color: color-mix(in srgb, var(--error-bg) 68%, transparent);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--error-line) 58%, transparent);
+}
+
+.map-completion-notice--error .map-completion-notice__text strong {
+  color: var(--error-ink);
 }
 
 .center-pin {

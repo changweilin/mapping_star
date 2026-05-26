@@ -13,6 +13,7 @@ import {
 } from "react";
 import L from "leaflet";
 import {
+  AlertTriangle,
   ChevronDown,
   ChevronUp,
   Crosshair,
@@ -339,6 +340,7 @@ type CompletionNotice = {
   id: string;
   title: string;
   message: string;
+  variant?: "success" | "error";
 };
 type MapTileLayerConfig = {
   url: string;
@@ -2293,6 +2295,19 @@ function App() {
       completionNoticeTimerRef.current = null;
     }, 4200);
   };
+  const showFailureNotice = (message: string) => {
+    clearCompletionNoticeTimer();
+    setCompletionNotice({
+      id: `failed-${Date.now()}`,
+      title: "搜索已停止",
+      message,
+      variant: "error"
+    });
+    completionNoticeTimerRef.current = window.setTimeout(() => {
+      setCompletionNotice(null);
+      completionNoticeTimerRef.current = null;
+    }, 5200);
+  };
   const resetProgress = () => {
     clearProgressTimer();
     setCalculationProgress(null);
@@ -3517,6 +3532,7 @@ function App() {
               outerRadiusMeters,
               {
                 signal: searchController.signal,
+                failOnPartialError: true,
                 resultLimit: HONEYCOMB_BATCH_RESULT_LIMIT
               }
             );
@@ -3550,8 +3566,7 @@ function App() {
             }
             const message =
               batchError instanceof Error ? batchError.message : "未知錯誤";
-            honeycombWarnings.push(`${batch.label}查詢失敗：${message}`);
-            progressLabel = `${batch.label}查詢失敗，繼續下一批蜂巢`;
+            throw new Error(`${batch.label}查詢失敗：${message}`);
           }
 
           searchedHoneycombCellCount += batch.cells.length;
@@ -3754,7 +3769,9 @@ function App() {
         })
       );
       resetProgress();
+      setStatus(`搜尋繪製失敗：${message}`);
       setError(message);
+      showFailureNotice(message);
     } finally {
       if (searchAbortControllerRef.current === searchController) {
         searchAbortControllerRef.current = null;
@@ -5017,13 +5034,19 @@ function App() {
           )}
           {completionNotice && (
             <div
-              className="map-completion-notice"
+              className={`map-completion-notice map-completion-notice--${
+                completionNotice.variant ?? "success"
+              }`}
               key={completionNotice.id}
               role="status"
               aria-live="polite"
             >
               <span className="map-completion-notice__icon" aria-hidden="true">
-                <Sparkles size={30} />
+                {completionNotice.variant === "error" ? (
+                  <AlertTriangle size={30} />
+                ) : (
+                  <Sparkles size={30} />
+                )}
               </span>
               <span className="map-completion-notice__text">
                 <strong>{completionNotice.title}</strong>

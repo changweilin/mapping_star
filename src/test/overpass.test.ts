@@ -575,6 +575,58 @@ describe("overpass helpers", () => {
     expect(result.hitLimit).toBe(false);
   });
 
+  it("stops strict honeycomb bbox searches when a category fails", async () => {
+    const timeoutError = Object.assign(new Error("aborted"), {
+      name: "AbortError"
+    });
+    const religion = {
+      ...mustCategory("religion"),
+      overpassFilters: ['["amenity"="place_of_worship"]']
+    };
+    const cafe = {
+      ...mustCategory("cafe"),
+      overpassFilters: ['["amenity"="cafe"]']
+    };
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(timeoutError)
+      .mockRejectedValueOnce(timeoutError)
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            elements: [
+              {
+                type: "node",
+                id: 1,
+                lat: 25.006,
+                lon: 121,
+                tags: {
+                  name: "Batch temple",
+                  amenity: "place_of_worship"
+                }
+              }
+            ]
+          }),
+          { status: 200 }
+        )
+      )
+      .mockRejectedValueOnce(timeoutError)
+      .mockRejectedValueOnce(timeoutError);
+
+    await expect(
+      fetchPoisForBoundsDetailed(
+        { lat: 25, lng: 121 },
+        [{ south: 24.99, west: 120.99, north: 25.02, east: 121.02 }],
+        [religion, cafe],
+        500,
+        1000,
+        { failOnPartialError: true }
+      )
+    ).rejects.toThrow("蜂巢搜索查詢失敗");
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
   it("queries selected categories separately", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(() =>
       Promise.resolve(

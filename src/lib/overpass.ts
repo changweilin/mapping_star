@@ -61,6 +61,7 @@ export interface FetchPoisForBoundsResult extends FetchPoisResult {
 export interface FetchPoisForBoundsOptions {
   signal?: AbortSignal;
   resultLimit?: number;
+  failOnPartialError?: boolean;
 }
 
 interface FetchCategoryElementsResult {
@@ -497,7 +498,8 @@ const fetchCategoryBoundsElements = async (
   boundsList: OverpassBounds[],
   category: PoiCategory,
   signal?: AbortSignal,
-  resultLimit = MAX_OVERPASS_BBOX_RESULTS
+  resultLimit = MAX_OVERPASS_BBOX_RESULTS,
+  failOnPartialError = false
 ): Promise<FetchCategoryElementsResult> => {
   try {
     return {
@@ -540,15 +542,18 @@ const fetchCategoryBoundsElements = async (
       throw primaryError;
     }
 
+    const warning = `${category.label} 的部分蜂巢條件查詢失敗（${uniqueMessages(
+      failures
+    ).join("、")}）`;
+    if (failedFilters > 0 && failOnPartialError) {
+      throw new Error(warning);
+    }
+
     return {
       elements,
       warnings:
         failedFilters > 0
-          ? [
-              `${category.label} 的部分蜂巢條件查詢失敗（${uniqueMessages(
-                failures
-              ).join("、")}），已使用成功取得的資料繼續。`
-            ]
+          ? [`${warning}，已使用成功取得的資料繼續。`]
           : []
     };
   }
@@ -675,7 +680,11 @@ export const fetchPoisForBoundsDetailed = async (
     return { pois: [], warnings: [], hitLimit: false };
   }
 
-  const { resultLimit = MAX_OVERPASS_BBOX_RESULTS, signal } = options;
+  const {
+    failOnPartialError = false,
+    resultLimit = MAX_OVERPASS_BBOX_RESULTS,
+    signal
+  } = options;
   const safeLimit = Math.max(
     1,
     Math.min(MAX_OVERPASS_RESULTS, Math.round(resultLimit))
@@ -702,12 +711,17 @@ export const fetchPoisForBoundsDetailed = async (
           normalizedBounds,
           category,
           signal,
-          safeLimit
+          safeLimit,
+          failOnPartialError
         );
         elements.push(...result.elements);
         warnings.push(...result.warnings);
       } catch (categoryError) {
-        failures.push(formatCategoryFailure(category, categoryError));
+        const failure = formatCategoryFailure(category, categoryError);
+        if (failOnPartialError) {
+          throw new Error(`蜂巢搜索查詢失敗：${failure}。`);
+        }
+        failures.push(failure);
       }
 
       await sleep(CATEGORY_QUERY_PAUSE_MS, signal);
