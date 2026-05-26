@@ -38,6 +38,7 @@ import {
   type DrawSummary
 } from "./components/DrawSummaryDetails";
 import { MarqueeSelect } from "./components/MarqueeSelect";
+import { PlaceCandidateList } from "./components/PlaceCandidateList";
 import { RadiusRangeControl } from "./components/RadiusRangeControl";
 import { ResultMetric } from "./components/ResultMetric";
 import { POI_CATEGORIES } from "./data/categories";
@@ -4286,48 +4287,14 @@ function App() {
             </button>
           </div>
           {shouldShowPlaceCandidates && (
-            <div className="place-candidate-list" aria-label="候選地點">
-              {placeCandidates.map((candidate, index) => {
-                const isSelected = selectedPlaceCandidateId === candidate.id;
-
-                return (
-                  <article
-                    className={`place-candidate ${
-                      isSelected ? "place-candidate--selected" : ""
-                    }`}
-                    key={`${candidate.id}-${index}`}
-                  >
-                    <div className="place-candidate__body">
-                      <strong>{candidate.label}</strong>
-                      {candidate.detail && <span>{candidate.detail}</span>}
-                      <small>{formatCoordinate(candidate.center)}</small>
-                    </div>
-                    <div className="place-candidate__actions">
-                      <button
-                        className="secondary-button"
-                        type="button"
-                        title={`前往 ${candidate.label}`}
-                        onClick={() => handleGoToPlaceCandidate(candidate)}
-                        disabled={isSearchSettingsLocked}
-                      >
-                        <LocateFixed size={16} />
-                        <span>前往地點</span>
-                      </button>
-                      <button
-                        className="primary-button"
-                        type="button"
-                        title={`前往並設置 ${candidate.label}`}
-                        onClick={() => handleSetPlaceCandidate(candidate)}
-                        disabled={isSearchSettingsLocked}
-                      >
-                        <MapPin size={16} />
-                        <span>前往並設置</span>
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
+            <PlaceCandidateList
+              candidates={placeCandidates}
+              selectedCandidateId={selectedPlaceCandidateId}
+              disabled={isSearchSettingsLocked}
+              formatCoordinate={formatCoordinate}
+              onGoToCandidate={handleGoToPlaceCandidate}
+              onSetCandidate={handleSetPlaceCandidate}
+            />
           )}
           <p className="coordinate">
             {formatCoordinate(center)}
