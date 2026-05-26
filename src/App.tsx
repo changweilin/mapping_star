@@ -47,6 +47,16 @@ import {
   normalizeDegrees
 } from "./lib/geo";
 import {
+  getHexCellCenterPlanar as getHoneycombCellCenterPlanar,
+  getHexRing as getHoneycombRing,
+  getHexTargetRadiusMeters as getHoneycombTargetRadiusMeters,
+  hexKey as getHoneycombCellKey,
+  normalizeHexCellRadius as normalizeHoneycombCellRadius,
+  pointToHex as honeycombPointToCell,
+  toPlanarPoint as makeHoneycombPlanarPoint,
+  type HexCell
+} from "./lib/hexGrid";
+import {
   getHoneycombSearchProfile,
   type HoneycombSearchProfile,
   type HoneycombTargetBand,
@@ -134,7 +144,6 @@ const MAX_RADIUS_KM = 30;
 const MAX_STAR_RESULTS = 50;
 const MAX_HONEYCOMB_PREVIEW_CELLS = 240;
 const HONEYCOMB_BATCH_RESULT_LIMIT = 900;
-const SQRT_3 = Math.sqrt(3);
 const MAGIC_POINT_DELAY_MS = 1880;
 const MAGIC_POINT_STEP_MS = 90;
 const MAGIC_POINT_DURATION_MS = 520;
@@ -319,10 +328,6 @@ type DrawSummary = {
   animationLabel: string;
   magicSpeed: MagicSpeed;
   notes: string[];
-};
-type HexCell = {
-  q: number;
-  r: number;
 };
 type HoneycombPreviewCell = {
   key: string;
@@ -1184,106 +1189,11 @@ const makeSectorPolygon = (
   return points;
 };
 
-const getHoneycombTargetRadiusMeters = (
-  outerRadiusMeters: number,
-  innerRadiusMeters: number
-) => Math.max(1, (outerRadiusMeters + Math.max(0, innerRadiusMeters)) / 2);
-
-const normalizeHoneycombCellRadius = (
-  outerRadiusMeters: number,
-  hexCellRadiusMeters: number
-) =>
-  Math.max(
-    250,
-    Math.min(Math.max(250, outerRadiusMeters), hexCellRadiusMeters)
-  );
-
-const makeHoneycombPlanarPoint = (
-  distanceMeters: number,
-  bearingDeg: number
-) => {
-  const bearing = (bearingDeg * Math.PI) / 180;
-  return {
-    x: distanceMeters * Math.sin(bearing),
-    y: distanceMeters * Math.cos(bearing)
-  };
-};
-
 const makeHoneycombLatLng = (center: LatLng, x: number, y: number) => {
   const distanceMeters = Math.hypot(x, y);
   const bearingDeg = normalizeDegrees((Math.atan2(x, y) * 180) / Math.PI);
   return destinationPoint(center, distanceMeters, bearingDeg);
 };
-
-const getHoneycombCellKey = ({ q, r }: HexCell) => `${q},${r}`;
-
-const roundHoneycombCell = (q: number, r: number): HexCell => {
-  const s = -q - r;
-  let roundedQ = Math.round(q);
-  let roundedR = Math.round(r);
-  let roundedS = Math.round(s);
-
-  const qDiff = Math.abs(roundedQ - q);
-  const rDiff = Math.abs(roundedR - r);
-  const sDiff = Math.abs(roundedS - s);
-
-  if (qDiff > rDiff && qDiff > sDiff) {
-    roundedQ = -roundedR - roundedS;
-  } else if (rDiff > sDiff) {
-    roundedR = -roundedQ - roundedS;
-  } else {
-    roundedS = -roundedQ - roundedR;
-  }
-
-  return { q: roundedQ, r: roundedR };
-};
-
-const honeycombPointToCell = (
-  { x, y }: { x: number; y: number },
-  cellRadiusMeters: number
-) =>
-  roundHoneycombCell(
-    ((SQRT_3 / 3) * x - y / 3) / cellRadiusMeters,
-    ((2 / 3) * y) / cellRadiusMeters
-  );
-
-const addHoneycombCell = (a: HexCell, b: HexCell, scale = 1): HexCell => ({
-  q: a.q + b.q * scale,
-  r: a.r + b.r * scale
-});
-
-const HONEYCOMB_DIRECTIONS: HexCell[] = [
-  { q: 1, r: 0 },
-  { q: 1, r: -1 },
-  { q: 0, r: -1 },
-  { q: -1, r: 0 },
-  { q: -1, r: 1 },
-  { q: 0, r: 1 }
-];
-
-const getHoneycombRing = (center: HexCell, ring: number) => {
-  if (ring === 0) return [center];
-
-  const cells: HexCell[] = [];
-  let current = addHoneycombCell(center, HONEYCOMB_DIRECTIONS[4], ring);
-
-  for (const direction of HONEYCOMB_DIRECTIONS) {
-    for (let step = 0; step < ring; step += 1) {
-      cells.push(current);
-      current = addHoneycombCell(current, direction);
-    }
-  }
-
-  return cells;
-};
-
-const getHoneycombCellCenterPlanar = (
-  cell: HexCell,
-  cellRadiusMeters: number
-) => ({
-  x: cellRadiusMeters * SQRT_3 * (cell.q + cell.r / 2),
-  y: cellRadiusMeters * 1.5 * cell.r
-});
 
 const makeHoneycombPolygon = (
   center: LatLng,

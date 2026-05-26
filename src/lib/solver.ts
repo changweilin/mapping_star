@@ -12,6 +12,18 @@ import {
   normalizeDegrees
 } from "./geo";
 import {
+  getHexRing,
+  getHexTargetRadiusMeters as getTargetRadiusMeters,
+  hexDistance,
+  hexKey,
+  normalizeHexCellRadius,
+  planarDistanceMeters,
+  pointToHex,
+  toPlanarPoint,
+  type HexCell,
+  type PlanarPoint
+} from "./hexGrid";
+import {
   defaultCandidatesPerSlotForMode,
   defaultRotationStepForMode,
   starLineSequencesForMode
@@ -19,8 +31,6 @@ import {
 
 export const DEFAULT_SOLVER_SEARCH_STRATEGY: SearchStrategy = "honeycomb";
 export const DEFAULT_HEX_CELL_RADIUS_METERS = 4000;
-
-const SQRT_3 = Math.sqrt(3);
 
 interface SolveOptions {
   mode: StarMode;
@@ -53,16 +63,6 @@ interface Evaluation {
   radiusStdMeters: number;
   angleErrorDeg: number;
   centerErrorMeters: number;
-}
-
-interface HexCell {
-  q: number;
-  r: number;
-}
-
-interface PlanarPoint {
-  x: number;
-  y: number;
 }
 
 interface HoneycombPoint extends PlanarPoint {
@@ -133,100 +133,6 @@ const makeRotations = (rotationSpanDeg: number, rotationStepDeg: number) => {
   return rotations.length > 0 ? rotations : [0];
 };
 
-const HEX_DIRECTIONS: HexCell[] = [
-  { q: 1, r: 0 },
-  { q: 1, r: -1 },
-  { q: 0, r: -1 },
-  { q: -1, r: 0 },
-  { q: -1, r: 1 },
-  { q: 0, r: 1 }
-];
-
-const getTargetRadiusMeters = (
-  outerRadiusMeters: number,
-  innerRadiusMeters: number
-) => Math.max(1, (outerRadiusMeters + Math.max(0, innerRadiusMeters)) / 2);
-
-const toPlanarPoint = (distanceMeters: number, bearingDeg: number) => {
-  const bearing = (bearingDeg * Math.PI) / 180;
-  return {
-    x: distanceMeters * Math.sin(bearing),
-    y: distanceMeters * Math.cos(bearing)
-  };
-};
-
-const planarDistanceMeters = (first: PlanarPoint, second: PlanarPoint) =>
-  Math.hypot(first.x - second.x, first.y - second.y);
-
-const hexKey = ({ q, r }: HexCell) => `${q},${r}`;
-
-const roundHex = (q: number, r: number): HexCell => {
-  const s = -q - r;
-  let roundedQ = Math.round(q);
-  let roundedR = Math.round(r);
-  let roundedS = Math.round(s);
-
-  const qDiff = Math.abs(roundedQ - q);
-  const rDiff = Math.abs(roundedR - r);
-  const sDiff = Math.abs(roundedS - s);
-
-  if (qDiff > rDiff && qDiff > sDiff) {
-    roundedQ = -roundedR - roundedS;
-  } else if (rDiff > sDiff) {
-    roundedR = -roundedQ - roundedS;
-  } else {
-    roundedS = -roundedQ - roundedR;
-  }
-
-  return { q: roundedQ, r: roundedR };
-};
-
-const pointToHex = ({ x, y }: PlanarPoint, cellRadiusMeters: number) =>
-  roundHex(
-    ((SQRT_3 / 3) * x - y / 3) / cellRadiusMeters,
-    ((2 / 3) * y) / cellRadiusMeters
-  );
-
-const hexDistance = (a: HexCell, b: HexCell) =>
-  (Math.abs(a.q - b.q) +
-    Math.abs(a.q + a.r - b.q - b.r) +
-    Math.abs(a.r - b.r)) /
-  2;
-
-const addHex = (a: HexCell, b: HexCell, scale = 1): HexCell => ({
-  q: a.q + b.q * scale,
-  r: a.r + b.r * scale
-});
-
-const getHexRing = (center: HexCell, ring: number) => {
-  if (ring === 0) return [center];
-
-  const cells: HexCell[] = [];
-  let current = addHex(center, HEX_DIRECTIONS[4], ring);
-
-  for (const direction of HEX_DIRECTIONS) {
-    for (let step = 0; step < ring; step += 1) {
-      cells.push(current);
-      current = addHex(current, direction);
-    }
-  }
-
-  return cells;
-};
-
-const normalizeHexCellRadius = (
-  radiusMeters: number,
-  hexCellRadiusMeters?: number
-) => {
-  const requestedRadius =
-    typeof hexCellRadiusMeters === "number" &&
-    Number.isFinite(hexCellRadiusMeters)
-      ? hexCellRadiusMeters
-      : DEFAULT_HEX_CELL_RADIUS_METERS;
-
-  return Math.max(250, Math.min(Math.max(250, radiusMeters), requestedRadius));
-};
-
 const normalizeHexPriorityRings = (hexPriorityRings?: number) =>
   Math.max(
     0,
@@ -250,7 +156,8 @@ const buildHoneycombContext = (
 ): HoneycombContext => {
   const cellRadiusMeters = normalizeHexCellRadius(
     outerRadiusMeters,
-    hexCellRadiusMeters
+    hexCellRadiusMeters,
+    DEFAULT_HEX_CELL_RADIUS_METERS
   );
   const cells = new Map<string, HoneycombPoint[]>();
   const pointsById = new Map<string, HoneycombPoint>();
