@@ -874,7 +874,7 @@ const makeRoseCurvePoints = (
   radiusMeters: number,
   petalFactor: number,
   rotationDeg: number,
-  steps = 192
+  steps = 384
 ) =>
   Array.from({ length: steps + 1 }, (_, index) => {
     const thetaDeg = (FULL_CIRCLE_DEGREES * index) / steps;
@@ -1794,15 +1794,15 @@ export const makeMagicCircleStrokes = (
       "rose-curve",
       makeRoseCurvePoints(
         result.center,
-        radiusMeters * (geometryPattern === "rose" ? 0.56 : 0.44),
+        radiusMeters * (geometryPattern === "rose" ? 0.62 : 0.44),
         geometryPattern === "rose" ? rosePetalFactor : mode,
         phaseDeg
       ),
       "magic-stroke magic-rose-curve magic-stroke--draw",
-      element.pale,
-      geometryPattern === "rose" ? 1.55 : 1.15,
-      geometryPattern === "rose" ? 0.78 : 0.64,
-      1120,
+      geometryPattern === "rose" ? element.primary : element.pale,
+      geometryPattern === "rose" ? 2.65 : 1.15,
+      geometryPattern === "rose" ? 0.96 : 0.64,
+      geometryPattern === "rose" ? 1480 : 1120,
       0.72
     );
   }
@@ -1828,29 +1828,6 @@ export const makeMagicCircleStrokes = (
   }
 
   if (geometryPattern !== "combined") {
-    addRadialTicks(
-      `${geometryPattern}-independent-axis`,
-      geometryPattern === "rose" ? rosePetalFactor * 2 : 12,
-      0.18,
-      1.02,
-      element.accent,
-      0.95,
-      0.48,
-      geometryPattern === "sierpinski" ? 30 : 0
-    );
-
-    addElementPointLineEffects({
-      lineWeight: element.lineStyle === "radiant" ? 2.85 : 2.55,
-      lineOpacity: 0.74,
-      spokeWeight: 0.9,
-      spokeOpacity: 0.42,
-      pointRadiusScale: 0.021,
-      pointOpacity: 0.66,
-      endpointSizePx: 38,
-      endpointOpacity: 0.92,
-      endpointAdvance: 0.18
-    });
-
     for (let index = 0; index < MAGIC_ANIMATION_COUNT; index += 1) {
       const bearing =
         phaseDeg + (FULL_CIRCLE_DEGREES * index) / MAGIC_ANIMATION_COUNT;
@@ -1872,18 +1849,6 @@ export const makeMagicCircleStrokes = (
     }
 
     pushCircle("core-ring", 0.16, element.accent, 1.2, 0.64, 560);
-    pushPolyline(
-      "core-axis",
-      [
-        destinationPoint(result.center, radiusMeters * 0.24, phaseDeg + 90),
-        destinationPoint(result.center, radiusMeters * 0.24, phaseDeg + 270)
-      ],
-      "magic-stroke magic-stroke--draw",
-      element.primary,
-      1.15,
-      0.58,
-      480
-    );
 
     pushSymbol(
       "center-symbol",

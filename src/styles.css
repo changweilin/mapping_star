@@ -2247,6 +2247,25 @@ a {
     drop-shadow(0 0 8px rgba(83, 100, 242, 0.5));
 }
 
+.magic-stroke.magic-rose-curve {
+  shape-rendering: geometricPrecision;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter:
+    drop-shadow(0 1px 2px rgba(12, 18, 28, 0.5))
+    drop-shadow(0 0 6px currentColor)
+    drop-shadow(0 0 15px rgba(255, 255, 255, 0.42));
+}
+
+.magic-rose-curve.magic-stroke--draw {
+  animation-name: draw-magic-line;
+  animation-duration: var(--magic-duration, 1480ms);
+  animation-timing-function: cubic-bezier(0.16, 0.74, 0.18, 1);
+  animation-delay: var(--magic-delay, 0ms);
+  animation-iteration-count: 1;
+  animation-fill-mode: forwards;
+}
+
 /* Keep after material dash patterns so every stroke starts fully hidden. */
 .star-line--draw,
 .magic-circle--draw,

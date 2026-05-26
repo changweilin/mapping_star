@@ -120,7 +120,7 @@ describe("magic circle animations", () => {
     }
 
     expect(roseCurve.className).toContain("magic-rose-curve");
-    expect(roseCurve.points).toHaveLength(193);
+    expect(roseCurve.points).toHaveLength(385);
     expect(
       roseCurve.points.every(
         (point) =>
@@ -176,18 +176,21 @@ describe("magic circle animations", () => {
       );
       expect(
         strokes.some((stroke) => stroke.className.includes("star-line"))
-      ).toBe(true);
+      ).toBe(false);
       expect(
         strokes.some(
           (stroke) => stroke.kind === "symbol" && stroke.role === "endpoint"
         )
-      ).toBe(true);
+      ).toBe(false);
       expect(
         strokes.filter((stroke) => stroke.id.startsWith("spoke-"))
-      ).toHaveLength(result.mode);
+      ).toHaveLength(0);
       expect(
         strokes.filter((stroke) => stroke.id.startsWith("element-point-"))
-      ).toHaveLength(result.mode);
+      ).toHaveLength(0);
+      expect(
+        strokes.some((stroke) => stroke.id.includes("independent-axis"))
+      ).toBe(false);
       expect(strokes.some((stroke) => stroke.id === "center-symbol")).toBe(
         true
       );
@@ -236,22 +239,46 @@ describe("magic circle animations", () => {
         strokes.some(
           (stroke) => stroke.kind === "symbol" && stroke.role === "endpoint"
         )
-      ).toBe(true);
+      ).toBe(false);
+      expect(
+        strokes.some((stroke) => stroke.className.includes("star-line"))
+      ).toBe(false);
+      expect(
+        strokes.filter((stroke) => stroke.id.startsWith("spoke-"))
+      ).toHaveLength(0);
+      expect(
+        strokes.filter((stroke) => stroke.id.startsWith("element-point-"))
+      ).toHaveLength(0);
+      expect(
+        strokes.some((stroke) => stroke.id.includes("independent-axis"))
+      ).toBe(false);
+    });
+  });
+
+  it("keeps element point and line effects on combined seals", () => {
+    for (const mode of [5, 6] as const) {
+      const result = makeResult(mode);
+      const strokes = makeMagicCircleStrokes(result, 6, "combined");
+
       expect(
         strokes.some((stroke) => stroke.className.includes("star-line"))
       ).toBe(true);
       expect(
         strokes.filter((stroke) => stroke.id.startsWith("spoke-"))
-      ).toHaveLength(result.mode);
+      ).toHaveLength(mode);
       expect(
         strokes.filter((stroke) => stroke.id.startsWith("element-point-"))
-      ).toHaveLength(result.mode);
-    });
+      ).toHaveLength(mode);
+      expect(
+        strokes.filter(
+          (stroke) => stroke.kind === "symbol" && stroke.role === "endpoint"
+        )
+      ).toHaveLength(mode);
+    }
   });
 
-  it("adds element point and line effects to every geometry variant", () => {
+  it("keeps standalone geometry variants focused on their own shapes", () => {
     const variants = [
-      ["combined", {}],
       ["rose", {}],
       ["sierpinski", {}],
       ["zodiac", { zodiacIndex: 3 }]
@@ -265,18 +292,24 @@ describe("magic circle animations", () => {
 
         expect(
           strokes.some((stroke) => stroke.className.includes("star-line"))
-        ).toBe(true);
+        ).toBe(false);
         expect(
           strokes.filter((stroke) => stroke.id.startsWith("spoke-"))
-        ).toHaveLength(mode);
+        ).toHaveLength(0);
         expect(
           strokes.filter((stroke) => stroke.id.startsWith("element-point-"))
-        ).toHaveLength(mode);
+        ).toHaveLength(0);
         expect(
           strokes.filter(
             (stroke) => stroke.kind === "symbol" && stroke.role === "endpoint"
           )
-        ).toHaveLength(mode);
+        ).toHaveLength(0);
+        expect(
+          strokes.some((stroke) => stroke.id.includes("independent-axis"))
+        ).toBe(false);
+        expect(strokes.some((stroke) => stroke.id === "center-symbol")).toBe(
+          true
+        );
       }
     }
   });
@@ -291,7 +324,7 @@ describe("magic circle animations", () => {
       throw new Error("Expected a rose curve polyline");
     }
     expect(
-      haversineDistanceMeters(result.center, roseCurve.points[16])
+      haversineDistanceMeters(result.center, roseCurve.points[32])
     ).toBeLessThan(0.001);
 
     const shallowTriangles = makeMagicCircleStrokes(
