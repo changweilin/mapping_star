@@ -45,6 +45,11 @@ import {
   formatDistance,
   normalizeDegrees
 } from "./lib/geo";
+import {
+  getHoneycombSearchProfile,
+  type HoneycombSearchProfile,
+  type HoneycombTargetBand
+} from "./lib/honeycombStrategy";
 import { loadLastStar, saveLastStar } from "./lib/lastStar";
 import {
   getMagicElement,
@@ -118,10 +123,7 @@ const DEFAULT_CENTER: LatLng = { lat: 25.033964, lng: 121.564468 };
 const MAX_RENDERED_POIS = 350;
 const MAX_RADIUS_KM = 30;
 const MAX_STAR_RESULTS = 50;
-const HONEYCOMB_PREVIEW_PRIORITY_RINGS = 2;
 const MAX_HONEYCOMB_PREVIEW_CELLS = 240;
-const HONEYCOMB_SEARCH_CELLS_PER_BATCH = 10;
-const HONEYCOMB_FAST_CANDIDATES_PER_SLOT = 4;
 const HONEYCOMB_BATCH_RESULT_LIMIT = 900;
 const SQRT_3 = Math.sqrt(3);
 const MAGIC_POINT_DELAY_MS = 1880;
@@ -311,6 +313,20 @@ type HoneycombSearchBatch = {
   cells: HoneycombPreviewCell[];
   isInitial: boolean;
   label: string;
+};
+type HoneycombPreviewParams = {
+  mode: StarMode;
+  center: LatLng;
+  innerRadiusMeters: number;
+  outerRadiusMeters: number;
+  rotationStepDeg: number;
+  hexCellRadiusMeters: number;
+  priorityRings: number;
+  targetBands: HoneycombTargetBand[];
+};
+type HoneycombSearchBatchParams = HoneycombPreviewParams & {
+  initialCellCount: number;
+  cellsPerBatch: number;
 };
 type CalculationRecord = {
   id: string;
@@ -853,7 +869,8 @@ const makeAutoSolveKey = ({
   candidatesPerSlot,
   rotationStepDeg,
   searchStrategy,
-  hexCellRadiusKm
+  hexCellRadiusKm,
+  honeycombProfileKey
 }: {
   mode: StarMode;
   center: LatLng;
@@ -864,6 +881,7 @@ const makeAutoSolveKey = ({
   rotationStepDeg: number;
   searchStrategy: SearchStrategy;
   hexCellRadiusKm: number;
+  honeycombProfileKey: string;
 }) =>
   [
     mode,
@@ -875,7 +893,8 @@ const makeAutoSolveKey = ({
     candidatesPerSlot,
     rotationStepDeg,
     searchStrategy,
-    hexCellRadiusKm
+    hexCellRadiusKm,
+    honeycombProfileKey
   ].join("|");
 
 const makeCenterIcon = () =>
@@ -1254,17 +1273,18 @@ const makeHoneycombPreviewCells = ({
   innerRadiusMeters,
   outerRadiusMeters,
   rotationStepDeg,
-  hexCellRadiusMeters
-}: {
-  mode: StarMode;
-  center: LatLng;
-  innerRadiusMeters: number;
-  outerRadiusMeters: number;
-  rotationStepDeg: number;
-  hexCellRadiusMeters: number;
-}): HoneycombPreviewCell[] => {
-  const slotWidth = 360 / mode;
-  const step = Math.max(1, Math.min(slotWidth, rotationStepDeg));
+  hexCellRadiusMeters,
+  priorityRings,
+  targetBands
+}: HoneycombPreviewParams): HoneycombPreviewCell[] => {
+  const activeTargetBands =
+    targetBands.length > 0
+      ? targetBands
+      : [{ id: "perimeter", slots: mode, radius: "target" as const }];
+  const rotationSpanDeg = Math.min(
+    ...activeTargetBands.map((band) => 360 / Math.max(1, band.slots))
+  );
+  const step = Math.max(1, Math.min(rotationSpanDeg, rotationStepDeg));
   const cellRadiusMeters = normalizeHoneycombCellRadius(
     outerRadiusMeters,
     hexCellRadiusMeters
@@ -1277,7 +1297,7 @@ const makeHoneycombPreviewCells = ({
   const seen = new Set<string>();
   const cells: HoneycombPreviewCell[] = [];
 
-  for (let rotationDeg = 0; rotationDeg < slotWidth; rotationDeg += step) {
+  for (let rotationDeg = 0; rotationDeg < rotationSpanDeg; rotationDeg += step) {
     rotations.push(rotationDeg);
   }
 
@@ -1286,49 +1306,58 @@ const makeHoneycombPreviewCells = ({
     maxRing: number,
     minRing = 0
   ) => {
-    for (let slotIndex = 0; slotIndex < mode; slotIndex += 1) {
-      const targetBearing = normalizeDegrees(
-        rotationDeg + slotWidth * slotIndex
-      );
-      const targetCell = honeycombPointToCell(
-        makeHoneycombPlanarPoint(targetRadiusMeters, targetBearing),
-        cellRadiusMeters
-      );
+    for (const band of activeTargetBands) {
+      const bandSlots = Math.max(1, band.slots);
+      const slotWidth = 360 / bandSlots;
+      const bandRadiusMeters =
+        band.radius === "target"
+          ? targetRadiusMeters
+          : Math.max(1, outerRadiusMeters * band.radius);
 
-      for (let ring = minRing; ring <= maxRing; ring += 1) {
-        for (const cell of getHoneycombRing(targetCell, ring)) {
-          const key = getHoneycombCellKey(cell);
-          if (seen.has(key)) continue;
+      for (let slotIndex = 0; slotIndex < bandSlots; slotIndex += 1) {
+        const targetBearing = normalizeDegrees(
+          rotationDeg + (band.phaseOffsetDeg ?? 0) + slotWidth * slotIndex
+        );
+        const targetCell = honeycombPointToCell(
+          makeHoneycombPlanarPoint(bandRadiusMeters, targetBearing),
+          cellRadiusMeters
+        );
 
-          const planarCenter = getHoneycombCellCenterPlanar(
-            cell,
-            cellRadiusMeters
-          );
-          const distanceFromCenter = Math.hypot(
-            planarCenter.x,
-            planarCenter.y
-          );
-          const overlapsSearchRange =
-            distanceFromCenter <= outerRadiusMeters + cellRadiusMeters &&
-            distanceFromCenter >=
-              Math.max(0, innerRadiusMeters - cellRadiusMeters);
-          if (!overlapsSearchRange) continue;
+        for (let ring = minRing; ring <= maxRing; ring += 1) {
+          for (const cell of getHoneycombRing(targetCell, ring)) {
+            const key = getHoneycombCellKey(cell);
+            if (seen.has(key)) continue;
 
-          seen.add(key);
-          const cellCenter = makeHoneycombLatLng(
-            center,
-            planarCenter.x,
-            planarCenter.y
-          );
-          cells.push({
-            key,
-            order: cells.length + 1,
-            ring,
-            center: cellCenter,
-            polygon: makeHoneycombPolygon(cellCenter, cellRadiusMeters)
-          });
+            const planarCenter = getHoneycombCellCenterPlanar(
+              cell,
+              cellRadiusMeters
+            );
+            const distanceFromCenter = Math.hypot(
+              planarCenter.x,
+              planarCenter.y
+            );
+            const overlapsSearchRange =
+              distanceFromCenter <= outerRadiusMeters + cellRadiusMeters &&
+              distanceFromCenter >=
+                Math.max(0, innerRadiusMeters - cellRadiusMeters);
+            if (!overlapsSearchRange) continue;
 
-          if (cells.length >= MAX_HONEYCOMB_PREVIEW_CELLS) return cells;
+            seen.add(key);
+            const cellCenter = makeHoneycombLatLng(
+              center,
+              planarCenter.x,
+              planarCenter.y
+            );
+            cells.push({
+              key,
+              order: cells.length + 1,
+              ring,
+              center: cellCenter,
+              polygon: makeHoneycombPolygon(cellCenter, cellRadiusMeters)
+            });
+
+            if (cells.length >= MAX_HONEYCOMB_PREVIEW_CELLS) return cells;
+          }
         }
       }
     }
@@ -1343,7 +1372,7 @@ const makeHoneycombPreviewCells = ({
     if (addCellsForRotation(rotationDeg, 0)) return cells;
   }
 
-  for (let ring = 1; ring <= HONEYCOMB_PREVIEW_PRIORITY_RINGS; ring += 1) {
+  for (let ring = 1; ring <= priorityRings; ring += 1) {
     for (const rotationDeg of rotations) {
       if (addCellsForRotation(rotationDeg, ring, ring)) return cells;
     }
@@ -1353,11 +1382,11 @@ const makeHoneycombPreviewCells = ({
 };
 
 const makeHoneycombSearchBatches = (
-  params: Parameters<typeof makeHoneycombPreviewCells>[0]
+  params: HoneycombSearchBatchParams
 ): HoneycombSearchBatch[] => {
   const cells = makeHoneycombPreviewCells(params);
   const batches: HoneycombSearchBatch[] = [];
-  const firstBatchSize = Math.min(params.mode, cells.length);
+  const firstBatchSize = Math.min(params.initialCellCount, cells.length);
 
   if (firstBatchSize > 0) {
     batches.push({
@@ -1370,11 +1399,11 @@ const makeHoneycombSearchBatches = (
   for (
     let offset = firstBatchSize;
     offset < cells.length;
-    offset += HONEYCOMB_SEARCH_CELLS_PER_BATCH
+    offset += params.cellsPerBatch
   ) {
     const batchCells = cells.slice(
       offset,
-      offset + HONEYCOMB_SEARCH_CELLS_PER_BATCH
+      offset + params.cellsPerBatch
     );
     batches.push({
       cells: batchCells,
@@ -1385,6 +1414,35 @@ const makeHoneycombSearchBatches = (
 
   return batches;
 };
+
+const makeHoneycombSearchParams = ({
+  profile,
+  mode,
+  center,
+  innerRadiusMeters,
+  outerRadiusMeters,
+  rotationStepDeg,
+  hexCellRadiusMeters
+}: {
+  profile: HoneycombSearchProfile;
+  mode: StarMode;
+  center: LatLng;
+  innerRadiusMeters: number;
+  outerRadiusMeters: number;
+  rotationStepDeg: number;
+  hexCellRadiusMeters: number;
+}): HoneycombSearchBatchParams => ({
+  mode,
+  center,
+  innerRadiusMeters,
+  outerRadiusMeters,
+  rotationStepDeg,
+  hexCellRadiusMeters,
+  priorityRings: profile.priorityRings,
+  targetBands: profile.targetBands,
+  initialCellCount: profile.initialCellCount,
+  cellsPerBatch: profile.cellsPerBatch
+});
 
 const getBoundsForPoints = (points: LatLng[]): OverpassBounds => {
   const lats = points.map((point) => point.lat);
@@ -1895,6 +1953,18 @@ function App() {
   const magicGeometryPattern = magicDrawVariant.geometryPattern;
   const magicGeometryOptions = magicDrawVariant.geometryOptions;
   const magicGeometryVariantKey = `${magicDrawShape}:${magicDrawVariant.id}`;
+  const honeycombSearchProfile = useMemo(
+    () =>
+      getHoneycombSearchProfile({
+        shape: magicDrawShape,
+        variantId: magicDrawVariant.id,
+        mode: starMode
+      }),
+    [magicDrawShape, magicDrawVariant.id, starMode]
+  );
+  const honeycombInnerRadiusNote = honeycombSearchProfile.ignoreInnerRadius
+    ? `${magicDrawShapeLabel} ${magicDrawVariantLabel} 需要內部點，搜索與解算已忽略內徑限制。`
+    : null;
   const currentMapLayerOption =
     MAP_LAYER_OPTIONS.find((option) => option.id === mapLayer) ??
     MAP_LAYER_OPTIONS[0];
@@ -1961,14 +2031,17 @@ function App() {
     }`;
   const innerRadiusMeters = innerRadiusKm * 1000;
   const outerRadiusMeters = outerRadiusKm * 1000;
+  const effectiveInnerRadiusMeters = honeycombSearchProfile.ignoreInnerRadius
+    ? 0
+    : innerRadiusMeters;
   const visiblePois = useMemo(
     () =>
       pois.filter(
         (poi) =>
-          poi.distanceMeters >= innerRadiusMeters &&
+          poi.distanceMeters >= effectiveInnerRadiusMeters &&
           poi.distanceMeters <= outerRadiusMeters
       ),
-    [innerRadiusMeters, outerRadiusMeters, pois]
+    [effectiveInnerRadiusMeters, outerRadiusMeters, pois]
   );
   const maxAngleToleranceDeg = maxAngleToleranceForMode(starMode);
   const effectiveAngleToleranceDeg = Math.min(
@@ -1980,20 +2053,22 @@ function App() {
       mode: starMode,
       center,
       radiusMeters: outerRadiusMeters,
-      innerRadiusMeters,
+      innerRadiusMeters: effectiveInnerRadiusMeters,
       maxResults: MAX_STAR_RESULTS,
       angleToleranceDeg: effectiveAngleToleranceDeg,
       candidatesPerSlot,
       rotationStepDeg,
       searchStrategy,
-      hexCellRadiusMeters: hexCellRadiusKm * 1000
+      hexCellRadiusMeters: hexCellRadiusKm * 1000,
+      hexPriorityRings: honeycombSearchProfile.priorityRings
     }),
     [
       candidatesPerSlot,
       center,
       effectiveAngleToleranceDeg,
+      effectiveInnerRadiusMeters,
       hexCellRadiusKm,
-      innerRadiusMeters,
+      honeycombSearchProfile.priorityRings,
       outerRadiusMeters,
       rotationStepDeg,
       searchStrategy,
@@ -2011,13 +2086,15 @@ function App() {
         candidatesPerSlot,
         rotationStepDeg,
         searchStrategy,
-        hexCellRadiusKm
+        hexCellRadiusKm,
+        honeycombProfileKey: honeycombSearchProfile.key
       }),
     [
       candidatesPerSlot,
       center,
       effectiveAngleToleranceDeg,
       hexCellRadiusKm,
+      honeycombSearchProfile.key,
       innerRadiusKm,
       outerRadiusKm,
       rotationStepDeg,
@@ -2127,7 +2204,8 @@ function App() {
       candidatesPerSlot,
       rotationStepDeg,
       searchStrategy,
-      hexCellRadiusKm
+      hexCellRadiusKm,
+      honeycombProfileKey: honeycombSearchProfile.key
     });
   };
   const handleCancelSearch = () => {
@@ -2378,7 +2456,7 @@ function App() {
   const countPoisInCurrentRange = (items: Poi[]) =>
     items.filter(
       (poi) =>
-        poi.distanceMeters >= innerRadiusMeters &&
+        poi.distanceMeters >= effectiveInnerRadiusMeters &&
         poi.distanceMeters <= outerRadiusMeters
     ).length;
   const getEstimatedMagicAnimationMs = (result: StarResult | null) => {
@@ -3239,14 +3317,15 @@ function App() {
     group.clearLayers();
     if (!showHoneycomb || searchStrategy !== "honeycomb") return;
 
-    const cells = makeHoneycombPreviewCells({
+    const cells = makeHoneycombPreviewCells(makeHoneycombSearchParams({
+      profile: honeycombSearchProfile,
       mode: starMode,
       center,
-      innerRadiusMeters,
+      innerRadiusMeters: effectiveInnerRadiusMeters,
       outerRadiusMeters,
       rotationStepDeg,
       hexCellRadiusMeters: hexCellRadiusKm * 1000
-    });
+    }));
 
     cells.forEach((cell) => {
       const isCompleted =
@@ -3272,9 +3351,10 @@ function App() {
     });
   }, [
     center,
+    effectiveInnerRadiusMeters,
     hexCellRadiusKm,
     honeycombCompletedTargetCount,
-    innerRadiusMeters,
+    honeycombSearchProfile,
     outerRadiusMeters,
     rotationStepDeg,
     searchStrategy,
@@ -3319,7 +3399,7 @@ function App() {
       L.polygon(
         makeSectorPolygon(
           selectedResult.center,
-          innerRadiusMeters,
+          effectiveInnerRadiusMeters,
           outerRadiusMeters,
           target - sectorHalfWidth,
           target + sectorHalfWidth
@@ -3336,7 +3416,7 @@ function App() {
     }
   }, [
     effectiveAngleToleranceDeg,
-    innerRadiusMeters,
+    effectiveInnerRadiusMeters,
     magicGeometryPattern,
     magicGeometryVariantKey,
     outerRadiusMeters,
@@ -3750,20 +3830,22 @@ function App() {
       await waitForPaint();
 
       if (searchStrategy === "honeycomb") {
-        const honeycombSearchParams = {
+        const honeycombSearchParams = makeHoneycombSearchParams({
+          profile: honeycombSearchProfile,
           mode: starMode,
           center: searchCenter.center,
-          innerRadiusMeters,
+          innerRadiusMeters: effectiveInnerRadiusMeters,
           outerRadiusMeters,
           rotationStepDeg,
           hexCellRadiusMeters: hexCellRadiusKm * 1000
-        };
+        });
         const honeycombCellRadiusMeters = normalizeHoneycombCellRadius(
           outerRadiusMeters,
           hexCellRadiusKm * 1000
         );
-        const honeycombBatches =
-          makeHoneycombSearchBatches(honeycombSearchParams);
+        const honeycombBatches = makeHoneycombSearchBatches(
+          honeycombSearchParams
+        );
         const totalHoneycombCells = honeycombBatches.reduce(
           (total, batch) => total + batch.cells.length,
           0
@@ -3783,11 +3865,17 @@ function App() {
             maxResults: 1,
             candidatesPerSlot: Math.max(
               1,
-              Math.min(candidatesPerSlot, HONEYCOMB_FAST_CANDIDATES_PER_SLOT)
+              Math.min(
+                candidatesPerSlot,
+                honeycombSearchProfile.fastCandidatesPerSlot
+              )
             ),
             rotationStepDeg: isInitialBatch
               ? 360 / starMode
-              : Math.max(rotationStepDeg, 6),
+              : Math.max(
+                  rotationStepDeg,
+                  honeycombSearchProfile.fastRotationStepDeg
+                ),
             hexPriorityRings: 0
           });
           previewSolveCount += 1;
@@ -3840,7 +3928,7 @@ function App() {
               searchCenter.center,
               batch.cells.map(getHoneycombCellBounds),
               selectedCategories,
-              innerRadiusMeters,
+              effectiveInnerRadiusMeters,
               outerRadiusMeters,
               {
                 signal: searchController.signal,
@@ -3922,7 +4010,13 @@ function App() {
         await waitForPaint();
         if (nextResults.length > 0) markFirstResult("最終計算");
         const finishedAtMs = getNowMs();
-        const notes = [...new Set(honeycombWarnings)];
+        const notes = [
+          ...new Set(
+            honeycombInnerRadiusNote
+              ? [...honeycombWarnings, honeycombInnerRadiusNote]
+              : honeycombWarnings
+          )
+        ];
 
         notes.push(
           `蜂巢批次搜索完成：成功 ${successfulHoneycombBatchCount}/${honeycombBatches.length} 批，已搜索 ${searchedHoneycombCellCount}/${totalHoneycombCells} 個蜂巢。`
@@ -3962,7 +4056,7 @@ function App() {
         searchCenter.center,
         outerRadiusMeters,
         selectedCategories,
-        innerRadiusMeters,
+        effectiveInnerRadiusMeters,
         {
           signal: searchController.signal,
           onCategoryResult: (progress) => {
@@ -4005,7 +4099,9 @@ function App() {
       await waitForPaint();
       if (nextResults.length > 0) markFirstResult("最終計算");
       const finishedAtMs = getNowMs();
-      const notes = [...warnings];
+      const notes = honeycombInnerRadiusNote
+        ? [...warnings, honeycombInnerRadiusNote]
+        : [...warnings];
 
       if (nextPois.length >= overpassResultLimit) {
         notes.push(
@@ -4203,6 +4299,11 @@ function App() {
       maxAngleToleranceForMode(restoredStar.mode)
     );
     const restoredMagicDrawShape = getMagicDrawShapeForMode(restoredStar.mode);
+    const restoredHoneycombProfile = getHoneycombSearchProfile({
+      shape: restoredMagicDrawShape,
+      variantId: String(restoredStar.mode),
+      mode: restoredStar.mode
+    });
 
     skipNextAutoSolveRef.current = makeAutoSolveKey({
       mode: restoredStar.mode,
@@ -4213,7 +4314,8 @@ function App() {
       candidatesPerSlot,
       rotationStepDeg,
       searchStrategy,
-      hexCellRadiusKm
+      hexCellRadiusKm,
+      honeycombProfileKey: restoredHoneycombProfile.key
     });
     setCenter(restoredStar.center);
     setCenterName(restoredStar.name ?? favorite.name);
