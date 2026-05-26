@@ -42,6 +42,11 @@ import { PlaceCandidateList } from "./components/PlaceCandidateList";
 import { RadiusRangeControl } from "./components/RadiusRangeControl";
 import { ResultAggregateSummary } from "./components/ResultAggregateSummary";
 import { ResultMetric } from "./components/ResultMetric";
+import {
+  ResultSortToolbar,
+  type StarResultSortDirection,
+  type StarResultSortKey
+} from "./components/ResultSortToolbar";
 import { SelectedPoiDetail } from "./components/SelectedPoiDetail";
 import { POI_CATEGORIES } from "./data/categories";
 import { exportGpx, exportKml, splitFavorites } from "./lib/exporters";
@@ -142,13 +147,6 @@ type MobileSettingsTab =
   | "logs"
   | "results"
   | "favorites";
-type StarResultSortKey =
-  | "score"
-  | "radius"
-  | "angle"
-  | "circumference-error"
-  | "center-error";
-type StarResultSortDirection = "asc" | "desc";
 
 const DEFAULT_CENTER: LatLng = { lat: 25.033964, lng: 121.564468 };
 const MAX_RENDERED_POIS = 350;
@@ -263,14 +261,6 @@ const CATEGORY_GROUPS = CATEGORY_GROUP_ORDER.map((group) => ({
   group,
   categories: POI_CATEGORIES.filter((category) => category.group === group)
 })).filter(({ categories }) => categories.length > 0);
-
-const STAR_RESULT_SORT_OPTIONS = [
-  { id: "score", label: "分數" },
-  { id: "radius", label: "半徑" },
-  { id: "angle", label: "角度" },
-  { id: "circumference-error", label: "圓周誤差" },
-  { id: "center-error", label: "中心誤差" }
-] satisfies Array<{ id: StarResultSortKey; label: string }>;
 
 type MagicPlayback = "playing" | "paused" | "ended";
 type MagicPlaybackDirection = "forward" | "reverse";
@@ -4574,44 +4564,12 @@ function App() {
               {resultAggregateStats && (
                 <ResultAggregateSummary stats={resultAggregateStats} />
               )}
-              <div className="result-toolbar">
-                <div
-                  className="result-sort-grid"
-                  role="group"
-                  aria-label="星形結果排序"
-                >
-                  <span className="result-sort-label">排序</span>
-                  {STAR_RESULT_SORT_OPTIONS.map((option) => (
-                    <button
-                      aria-pressed={starResultSort === option.id}
-                      className={`result-sort-button ${
-                        starResultSort === option.id ? "active" : ""
-                      }`}
-                      key={option.id}
-                      type="button"
-                      title={`依${option.label}${
-                        starResultSort === option.id &&
-                        starResultSortDirection === "asc"
-                          ? "反向"
-                          : "順向"
-                      }排序`}
-                      onClick={() => handleStarResultSortSelect(option.id)}
-                    >
-                      <span>{option.label}</span>
-                      {starResultSort === option.id ? (
-                        starResultSortDirection === "asc" ? (
-                          <ChevronUp aria-hidden="true" size={14} />
-                        ) : (
-                          <ChevronDown aria-hidden="true" size={14} />
-                        )
-                      ) : null}
-                    </button>
-                  ))}
-                </div>
-                <span className="result-toolbar__count">
-                  內外半徑內 {sortedResults.length} 組
-                </span>
-              </div>
+              <ResultSortToolbar
+                count={sortedResults.length}
+                sortKey={starResultSort}
+                sortDirection={starResultSortDirection}
+                onSortSelect={handleStarResultSortSelect}
+              />
               <div className="result-list">
                 {sortedResults.map((result, index) => {
                   const isActive = selectedResultIndex === index;
