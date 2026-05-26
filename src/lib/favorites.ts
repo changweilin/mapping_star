@@ -15,7 +15,14 @@ export const loadFavorites = (): FavoriteItem[] => {
 };
 
 export const saveFavorites = (favorites: FavoriteItem[]) => {
-  window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
+  try {
+    window.localStorage.setItem(
+      FAVORITES_STORAGE_KEY,
+      JSON.stringify(favorites)
+    );
+  } catch {
+    // Favorites still work for the current session if persistence is unavailable.
+  }
 };
 
 export const makePoiFavorite = (poi: Poi): FavoriteItem => ({

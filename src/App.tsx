@@ -1949,6 +1949,8 @@ function App() {
   const mobileSplitterTapRef = useRef<MobileSplitterTapState | null>(null);
   const mobileSplitterSnapAtRef = useRef(0);
   const mobileSettingsSwipeRef = useRef<MobileSettingsSwipeState | null>(null);
+  const placeSearchAbortControllerRef = useRef<AbortController | null>(null);
+  const placeSearchRequestIdRef = useRef(0);
   const searchAbortControllerRef = useRef<AbortController | null>(null);
   const isMagicCenterLockedRef = useRef(false);
   const [loading, setLoading] = useState(false);
@@ -3247,6 +3249,9 @@ function App() {
       clearProgressTimer();
       clearCompletionNoticeTimer();
       clearMagicPlaybackTimer();
+      placeSearchRequestIdRef.current += 1;
+      placeSearchAbortControllerRef.current?.abort();
+      placeSearchAbortControllerRef.current = null;
     },
     []
   );
@@ -3803,7 +3808,10 @@ function App() {
     return { results: finalResults, bestScore };
   };
 
-  const resolveSearchCenter = async (requireInput: boolean) => {
+  const resolveSearchCenter = async (
+    requireInput: boolean,
+    signal?: AbortSignal
+  ) => {
     const searchValue = searchText.trim();
     if (!searchValue) {
       if (requireInput) throw new Error("請輸入地標、地址或座標。");
@@ -3818,7 +3826,7 @@ function App() {
         : null;
     const nextCandidates = selectedCandidate
       ? placeCandidates
-      : await searchPlaces(searchValue);
+      : await searchPlaces(searchValue, { signal });
     const result = selectedCandidate ?? nextCandidates[0];
     if (!result) throw new Error("找不到這個地點，請換個名稱或輸入座標。");
     if (!selectedCandidate) {
@@ -3831,10 +3839,20 @@ function App() {
   };
 
   const handleSearchPlace = async () => {
+    placeSearchAbortControllerRef.current?.abort();
+    const requestId = placeSearchRequestIdRef.current + 1;
+    const controller = new AbortController();
+    placeSearchRequestIdRef.current = requestId;
+    placeSearchAbortControllerRef.current = controller;
+
     setLoading(true);
     setError("");
     try {
-      const candidates = await searchPlaces(searchText);
+      const candidates = await searchPlaces(searchText, {
+        signal: controller.signal
+      });
+      if (placeSearchRequestIdRef.current !== requestId) return;
+
       setPlaceCandidates(candidates);
       setPlaceCandidateQuery(searchText.trim());
       setSelectedPlaceCandidateId(null);
@@ -3842,9 +3860,18 @@ function App() {
         `找到 ${candidates.length} 個候選地點，請選擇前往或設置中心。`
       );
     } catch (searchError) {
+      if (
+        placeSearchRequestIdRef.current !== requestId ||
+        (searchError instanceof Error && searchError.name === "AbortError")
+      ) {
+        return;
+      }
       setError(searchError instanceof Error ? searchError.message : "搜尋失敗。");
     } finally {
-      setLoading(false);
+      if (placeSearchRequestIdRef.current === requestId) {
+        placeSearchAbortControllerRef.current = null;
+        setLoading(false);
+      }
     }
   };
 
@@ -3925,7 +3952,10 @@ function App() {
     let bestDisplayedScore: number | null = null;
     try {
       setProgressStep(8, "解析中心地點");
-      const searchCenter = await resolveSearchCenter(false);
+      const searchCenter = await resolveSearchCenter(
+        false,
+        searchController.signal
+      );
       skipNextAutoSolveForCenter(searchCenter.center);
       await waitForPaint();
       setProgressStep(18, "準備搜尋範圍");

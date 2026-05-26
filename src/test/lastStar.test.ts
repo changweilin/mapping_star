@@ -73,4 +73,16 @@ describe("last star helpers", () => {
 
     expect(loadLastStar()).toBeNull();
   });
+
+  it("keeps running when the last star cannot be persisted", () => {
+    const localStorage = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(() => {
+        throw new Error("quota exceeded");
+      })
+    };
+    vi.stubGlobal("window", { localStorage });
+
+    expect(() => saveLastStar(star)).not.toThrow();
+  });
 });

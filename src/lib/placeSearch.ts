@@ -1,6 +1,7 @@
 import type { PlaceSearchResult } from "../types";
 
 const PLACE_SEARCH_RESULT_LIMIT = 20;
+const PLACE_SEARCH_TIMEOUT_MS = 12000;
 const coordinatePattern =
   /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/;
 
@@ -12,6 +13,21 @@ type NominatimSearchResult = {
   lon: string;
   display_name?: string;
   name?: string;
+};
+
+export interface SearchPlacesOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
+const makeAbortError = () => {
+  const error = new Error("地點搜尋已取消。");
+  error.name = "AbortError";
+  return error;
+};
+
+const throwIfAborted = (signal?: AbortSignal) => {
+  if (signal?.aborted) throw makeAbortError();
 };
 
 export const parseCoordinateInput = (value: string): PlaceSearchResult | null => {
@@ -68,11 +84,45 @@ const makePlaceCandidate = (
   };
 };
 
+const fetchPlaceSearch = async (
+  url: string,
+  { signal, timeoutMs = PLACE_SEARCH_TIMEOUT_MS }: SearchPlacesOptions = {}
+) => {
+  throwIfAborted(signal);
+
+  const controller = new AbortController();
+  let didTimeout = false;
+  const abort = () => controller.abort();
+  const timeoutId = setTimeout(() => {
+    didTimeout = true;
+    controller.abort();
+  }, Math.max(1, timeoutMs));
+
+  signal?.addEventListener("abort", abort, { once: true });
+
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } catch (error) {
+    if (didTimeout) {
+      throw new Error("地點搜尋逾時，請稍後重試。");
+    }
+    if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
+      throw makeAbortError();
+    }
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", abort);
+    clearTimeout(timeoutId);
+  }
+};
+
 export const searchPlaces = async (
-  value: string
+  value: string,
+  options: SearchPlacesOptions = {}
 ): Promise<PlaceSearchResult[]> => {
   const trimmed = value.trim();
   if (!trimmed) throw new Error("請輸入地標、地址或座標。");
+  throwIfAborted(options.signal);
 
   const coordinate = parseCoordinateInput(trimmed);
   if (coordinate) return [coordinate];
@@ -83,8 +133,9 @@ export const searchPlaces = async (
     q: trimmed,
     "accept-language": "zh-TW,zh,en"
   });
-  const response = await fetch(
-    `https://nominatim.openstreetmap.org/search?${params.toString()}`
+  const response = await fetchPlaceSearch(
+    `https://nominatim.openstreetmap.org/search?${params.toString()}`,
+    options
   );
 
   if (!response.ok) {
@@ -102,7 +153,10 @@ export const searchPlaces = async (
   return candidates;
 };
 
-export const searchPlace = async (value: string): Promise<PlaceSearchResult> => {
-  const [first] = await searchPlaces(value);
+export const searchPlace = async (
+  value: string,
+  options: SearchPlacesOptions = {}
+): Promise<PlaceSearchResult> => {
+  const [first] = await searchPlaces(value, options);
   return first;
 };

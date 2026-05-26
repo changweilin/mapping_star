@@ -28,5 +28,9 @@ export const loadLastStar = (): StarResult | null => {
 };
 
 export const saveLastStar = (star: StarResult) => {
-  window.localStorage.setItem(LAST_STAR_STORAGE_KEY, JSON.stringify(star));
+  try {
+    window.localStorage.setItem(LAST_STAR_STORAGE_KEY, JSON.stringify(star));
+  } catch {
+    // Restoring the last star is a convenience, not a hard requirement.
+  }
 };

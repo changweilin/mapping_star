@@ -296,8 +296,12 @@ export const loadSettings = (): AppSettings => {
 };
 
 export const saveSettings = (settings: AppSettings) => {
-  window.localStorage.setItem(
-    SETTINGS_STORAGE_KEY,
-    JSON.stringify(normalizeSettings(settings))
-  );
+  try {
+    window.localStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify(normalizeSettings(settings))
+    );
+  } catch {
+    // Persisted settings are best-effort; keep the app usable if storage fails.
+  }
 };
