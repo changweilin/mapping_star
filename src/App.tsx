@@ -7,6 +7,7 @@ import {
   type TouchEvent,
   type WheelEvent,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -3062,6 +3063,12 @@ function App() {
       mediaQuery.removeEventListener("change", updateMobileLayout);
     };
   }, []);
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined" || !isMobileLayout) return;
+
+    setMobileMapSplitPercent(getMobileSearchDrawSplitPercent());
+  }, [isMobileLayout]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !isMobileLayout) return undefined;
