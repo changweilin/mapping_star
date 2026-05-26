@@ -2265,6 +2265,20 @@ function App() {
       current === result.id ? null : result.id
     );
   };
+  const clearCurrentMagicCircle = () => {
+    clearMagicPlaybackTimer();
+    starLayerRef.current?.clearLayers();
+    sectorLayerRef.current?.clearLayers();
+    setResults([]);
+    setSelectedResultIndex(0);
+    setExpandedResultId(null);
+    setSelectedPoi(null);
+    setMagicPlaybackState("playing");
+    setMagicDirectionState("forward");
+    magicTimelineDurationMsRef.current = 0;
+    magicTimelinePositionMsRef.current = 0;
+    magicPlaybackStartedAtRef.current = null;
+  };
   const handleFavoriteToggle = (favorite: FavoriteItem) => {
     if (areFavoritesLocked) return;
     setExpandedFavoriteId((current) =>
@@ -3902,11 +3916,8 @@ function App() {
     setLoading(true);
     setError("");
     clearCompletionNotice();
-    setResults([]);
-    setSelectedResultIndex(0);
-    setExpandedResultId(null);
+    clearCurrentMagicCircle();
     setExpandedFavoriteId(null);
-    setSelectedPoi(null);
     setHoneycombCompletedTargetCount(
       searchStrategy === "honeycomb" ? 0 : null
     );
