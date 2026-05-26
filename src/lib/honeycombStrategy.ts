@@ -5,7 +5,8 @@ export type HoneycombPatternShape =
   | "cross"
   | "bagua"
   | "rose"
-  | "sierpinski";
+  | "sierpinski"
+  | "zodiac";
 
 export type HoneycombTargetRadius = "target" | number;
 
@@ -153,6 +154,25 @@ const sierpinskiProfile = (variantId: string): HoneycombSearchProfile => {
   };
 };
 
+const zodiacProfile = (variantId: string): HoneycombSearchProfile => {
+  const signNumber = clamp(parseVariantNumber(variantId, "", 1), 1, 12);
+
+  return {
+    key: `zodiac:${signNumber}`,
+    ignoreInnerRadius: true,
+    priorityRings: 4,
+    fastCandidatesPerSlot: 6,
+    fastRotationStepDeg: 3,
+    initialCellCount: 12,
+    cellsPerBatch: 14,
+    targetBands: [
+      { id: "zodiac-gates", slots: 12, radius: 0.92 },
+      { id: "constellation-core", slots: 6, radius: 0.52, phaseOffsetDeg: 15 },
+      { id: "constellation-stars", slots: 8, radius: 0.28, phaseOffsetDeg: 7.5 }
+    ]
+  };
+};
+
 export const getHoneycombSearchProfile = ({
   shape,
   variantId,
@@ -167,6 +187,8 @@ export const getHoneycombSearchProfile = ({
       return roseProfile(variantId);
     case "sierpinski":
       return sierpinskiProfile(variantId);
+    case "zodiac":
+      return zodiacProfile(variantId);
     case "star":
     default:
       return starProfile(mode);

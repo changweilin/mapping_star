@@ -318,6 +318,43 @@ a {
   font-weight: 800;
 }
 
+.zodiac-number-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 5px;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.zodiac-number-button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 6px;
+  color: var(--ink-soft);
+  background: var(--segmented-bg);
+  border: 1px solid transparent;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.zodiac-number-button.selected {
+  color: var(--button-contrast);
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.zodiac-number-button:hover,
+.zodiac-number-button:focus-visible {
+  color: var(--button-contrast);
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
 .eyebrow {
   margin: 0 0 5px;
   color: var(--green);
@@ -2102,6 +2139,19 @@ a {
     drop-shadow(0 0 8px rgba(99, 207, 255, 0.24));
 }
 
+.magic-zodiac-line,
+.magic-zodiac-star,
+.magic-zodiac-gate {
+  filter:
+    drop-shadow(0 0 4px currentColor)
+    drop-shadow(0 0 10px rgba(255, 217, 106, 0.28));
+}
+
+.magic-zodiac-line {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .magic-drawable * {
   animation-play-state: inherit;
 }
@@ -2972,6 +3022,10 @@ a {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
     padding: 6px;
+  }
+
+  .zodiac-number-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .magic-control-button {

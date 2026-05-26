@@ -6,6 +6,7 @@ const FULL_CIRCLE_DEGREES = 360;
 const MIN_MAGIC_RADIUS_METERS = 120;
 const ROSE_CURVE_PETAL_FACTOR = 7;
 const SIERPINSKI_TRIANGLE_DEPTH = 3;
+const ZODIAC_CONSTELLATION_SCALE = 0.58;
 
 type MagicLineStyle =
   | "sharp"
@@ -449,14 +450,267 @@ export const MAGIC_SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4] as const;
 
 export type MagicSpeed = (typeof MAGIC_SPEED_OPTIONS)[number];
 export type MagicElementId = (typeof MAGIC_ELEMENTS)[number]["id"];
-export type MagicGeometryPattern = "combined" | "rose" | "sierpinski";
+export type MagicGeometryPattern =
+  | "combined"
+  | "rose"
+  | "sierpinski"
+  | "zodiac";
 export type MagicCombinedShape = "star" | "cross" | "bagua";
 
 export type MagicCircleGeometryOptions = {
   combinedShape?: MagicCombinedShape;
   rosePetalFactor?: number;
   sierpinskiDepth?: number;
+  zodiacIndex?: number;
 };
+
+type ZodiacPoint = {
+  x: number;
+  y: number;
+  size?: number;
+};
+
+export type ZodiacConstellation = {
+  id: string;
+  name: string;
+  latinName: string;
+  points: readonly ZodiacPoint[];
+  lines: readonly (readonly number[])[];
+  rotationDeg?: number;
+};
+
+export const ZODIAC_CONSTELLATIONS = [
+  {
+    id: "aries",
+    name: "牡羊",
+    latinName: "Aries",
+    points: [
+      { x: -0.48, y: 0.08, size: 1.05 },
+      { x: -0.18, y: 0.26, size: 1.2 },
+      { x: 0.12, y: 0.2 },
+      { x: 0.44, y: -0.02, size: 0.92 }
+    ],
+    lines: [[0, 1, 2, 3]],
+    rotationDeg: -10
+  },
+  {
+    id: "taurus",
+    name: "金牛",
+    latinName: "Taurus",
+    points: [
+      { x: 0, y: 0.02, size: 1.16 },
+      { x: -0.24, y: 0.2 },
+      { x: -0.56, y: 0.42, size: 0.92 },
+      { x: 0.26, y: 0.18 },
+      { x: 0.56, y: 0.38, size: 0.92 },
+      { x: -0.12, y: -0.18 },
+      { x: 0.1, y: -0.38 }
+    ],
+    lines: [
+      [2, 1, 0, 3, 4],
+      [0, 5, 6]
+    ],
+    rotationDeg: 6
+  },
+  {
+    id: "gemini",
+    name: "雙子",
+    latinName: "Gemini",
+    points: [
+      { x: -0.34, y: 0.44, size: 1.1 },
+      { x: -0.38, y: 0.1 },
+      { x: -0.32, y: -0.38, size: 0.96 },
+      { x: 0.3, y: 0.4, size: 1.08 },
+      { x: 0.36, y: 0.06 },
+      { x: 0.28, y: -0.4, size: 0.96 }
+    ],
+    lines: [
+      [0, 1, 2],
+      [3, 4, 5],
+      [0, 3],
+      [1, 4],
+      [2, 5]
+    ],
+    rotationDeg: 0
+  },
+  {
+    id: "cancer",
+    name: "巨蟹",
+    latinName: "Cancer",
+    points: [
+      { x: -0.48, y: 0.12, size: 0.94 },
+      { x: -0.16, y: 0.02, size: 1.08 },
+      { x: 0.16, y: 0.12 },
+      { x: 0.48, y: 0.28, size: 0.94 },
+      { x: 0, y: -0.3, size: 1.18 }
+    ],
+    lines: [
+      [0, 1, 2, 3],
+      [1, 4, 2]
+    ],
+    rotationDeg: 12
+  },
+  {
+    id: "leo",
+    name: "獅子",
+    latinName: "Leo",
+    points: [
+      { x: -0.44, y: 0.12, size: 1.06 },
+      { x: -0.22, y: 0.38, size: 1.16 },
+      { x: 0.06, y: 0.34 },
+      { x: 0.22, y: 0.08 },
+      { x: 0.02, y: -0.12, size: 1.08 },
+      { x: 0.34, y: -0.34 },
+      { x: -0.24, y: -0.34, size: 0.94 }
+    ],
+    lines: [
+      [0, 1, 2, 3, 4, 0],
+      [4, 5, 6, 4]
+    ],
+    rotationDeg: -8
+  },
+  {
+    id: "virgo",
+    name: "處女",
+    latinName: "Virgo",
+    points: [
+      { x: -0.52, y: 0.22 },
+      { x: -0.28, y: 0.1, size: 1.04 },
+      { x: -0.04, y: 0.18 },
+      { x: 0.2, y: 0.02 },
+      { x: 0.48, y: -0.12, size: 1.2 },
+      { x: -0.12, y: -0.2 },
+      { x: 0.12, y: -0.36, size: 0.92 }
+    ],
+    lines: [
+      [0, 1, 2, 3, 4],
+      [2, 5, 6],
+      [3, 5]
+    ],
+    rotationDeg: 4
+  },
+  {
+    id: "libra",
+    name: "天秤",
+    latinName: "Libra",
+    points: [
+      { x: -0.5, y: -0.24 },
+      { x: 0, y: -0.24, size: 1.08 },
+      { x: 0.5, y: -0.24 },
+      { x: -0.28, y: 0.08 },
+      { x: 0, y: 0.32, size: 1.2 },
+      { x: 0.28, y: 0.08 }
+    ],
+    lines: [
+      [0, 1, 2],
+      [3, 4, 5],
+      [0, 3],
+      [2, 5]
+    ],
+    rotationDeg: 0
+  },
+  {
+    id: "scorpio",
+    name: "天蠍",
+    latinName: "Scorpio",
+    points: [
+      { x: -0.5, y: 0.3, size: 0.94 },
+      { x: -0.28, y: 0.1 },
+      { x: -0.08, y: -0.08 },
+      { x: 0.16, y: -0.22, size: 1.08 },
+      { x: 0.38, y: -0.16 },
+      { x: 0.5, y: 0.06, size: 0.92 },
+      { x: 0.28, y: 0.22, size: 1.14 }
+    ],
+    lines: [[0, 1, 2, 3, 4, 5, 6]],
+    rotationDeg: -18
+  },
+  {
+    id: "sagittarius",
+    name: "射手",
+    latinName: "Sagittarius",
+    points: [
+      { x: -0.46, y: -0.16 },
+      { x: -0.12, y: 0.02, size: 1.06 },
+      { x: 0.22, y: 0.24, size: 1.18 },
+      { x: 0.48, y: 0.46 },
+      { x: 0.16, y: -0.22 },
+      { x: 0.42, y: -0.08 },
+      { x: -0.1, y: -0.42 }
+    ],
+    lines: [
+      [0, 1, 2, 3],
+      [1, 4, 5],
+      [4, 6],
+      [2, 4]
+    ],
+    rotationDeg: 10
+  },
+  {
+    id: "capricorn",
+    name: "摩羯",
+    latinName: "Capricorn",
+    points: [
+      { x: -0.52, y: 0.1 },
+      { x: -0.22, y: 0.22, size: 1.04 },
+      { x: 0.1, y: 0.1 },
+      { x: 0.42, y: 0.24 },
+      { x: 0.22, y: -0.22, size: 1.12 },
+      { x: -0.12, y: -0.36 },
+      { x: -0.42, y: -0.16, size: 0.94 }
+    ],
+    lines: [
+      [0, 1, 2, 3],
+      [2, 4, 5, 6, 0]
+    ],
+    rotationDeg: -4
+  },
+  {
+    id: "aquarius",
+    name: "水瓶",
+    latinName: "Aquarius",
+    points: [
+      { x: -0.52, y: 0.24 },
+      { x: -0.28, y: 0.38 },
+      { x: -0.04, y: 0.22 },
+      { x: 0.2, y: 0.36 },
+      { x: 0.48, y: 0.18 },
+      { x: -0.46, y: -0.16 },
+      { x: -0.2, y: -0.02 },
+      { x: 0.06, y: -0.18 },
+      { x: 0.32, y: -0.04 },
+      { x: 0.54, y: -0.2 }
+    ],
+    lines: [
+      [0, 1, 2, 3, 4],
+      [5, 6, 7, 8, 9]
+    ],
+    rotationDeg: 0
+  },
+  {
+    id: "pisces",
+    name: "雙魚",
+    latinName: "Pisces",
+    points: [
+      { x: -0.48, y: 0.28, size: 1.12 },
+      { x: -0.34, y: 0.02 },
+      { x: -0.5, y: -0.22 },
+      { x: -0.18, y: -0.28 },
+      { x: 0.1, y: -0.12, size: 1.04 },
+      { x: 0.42, y: -0.28 },
+      { x: 0.54, y: 0.02 },
+      { x: 0.34, y: 0.3, size: 1.14 }
+    ],
+    lines: [
+      [0, 1, 2, 3, 4],
+      [4, 5, 6, 7],
+      [1, 4, 6]
+    ],
+    rotationDeg: 8
+  }
+] as const satisfies readonly ZodiacConstellation[];
+
+export const ZODIAC_CONSTELLATION_COUNT = ZODIAC_CONSTELLATIONS.length;
 
 interface MagicStrokeBase {
   id: string;
@@ -683,6 +937,30 @@ const clampInteger = (
   return Math.min(max, Math.max(min, Math.round(value)));
 };
 
+const normalizeZodiacIndex = (value: number | undefined) => {
+  const rounded = Math.trunc(Number.isFinite(value) ? value! : 0);
+  return (
+    ((rounded % ZODIAC_CONSTELLATION_COUNT) + ZODIAC_CONSTELLATION_COUNT) %
+    ZODIAC_CONSTELLATION_COUNT
+  );
+};
+
+const makeZodiacPoint = (
+  center: LatLng,
+  radiusMeters: number,
+  point: ZodiacPoint,
+  rotationDeg: number
+) => {
+  const xMeters = point.x * radiusMeters * ZODIAC_CONSTELLATION_SCALE;
+  const yMeters = point.y * radiusMeters * ZODIAC_CONSTELLATION_SCALE;
+  const distanceMeters = Math.hypot(xMeters, yMeters);
+  const bearingDeg =
+    normalizeDegrees((Math.atan2(xMeters, yMeters) * 180) / Math.PI) +
+    rotationDeg;
+
+  return destinationPoint(center, distanceMeters, bearingDeg);
+};
+
 const getDefaultCombinedShape = (mode: StarMode): MagicCombinedShape =>
   mode === 4 ? "cross" : mode === 8 ? "bagua" : "star";
 
@@ -841,6 +1119,8 @@ export const makeMagicCircleStrokes = (
     0,
     5
   );
+  const zodiacIndex = normalizeZodiacIndex(geometryOptions.zodiacIndex);
+  const zodiacConstellation = ZODIAC_CONSTELLATIONS[zodiacIndex]!;
   const modeSlotDeg = FULL_CIRCLE_DEGREES / mode;
   const phaseDeg = normalizeDegrees(result.rotationDeg);
   const visualPhaseDeg =
@@ -1341,6 +1621,91 @@ export const makeMagicCircleStrokes = (
   pushCircle("middle-ring", 0.77, element.accent, 1.2, 0.48, 760);
   pushCircle("inner-ring", 0.48, element.pale, 1.1, 0.5, 660);
 
+  if (geometryPattern === "zodiac") {
+    const zodiacRotationDeg = phaseDeg + (zodiacConstellation.rotationDeg ?? 0);
+    const zodiacPoints = zodiacConstellation.points.map((point) =>
+      makeZodiacPoint(result.center, radiusMeters, point, zodiacRotationDeg)
+    );
+
+    pushPolyline(
+      `zodiac-frame-${zodiacConstellation.id}`,
+      makePolygonPoints(result.center, radiusMeters * 0.66, 12, phaseDeg),
+      "magic-stroke magic-zodiac-frame magic-stroke--draw",
+      element.accent,
+      1.05,
+      0.42,
+      820,
+      0.54
+    );
+
+    ZODIAC_CONSTELLATIONS.forEach((constellation, index) => {
+      const bearing = phaseDeg + (FULL_CIRCLE_DEGREES * index) / 12;
+      const gateCenter = destinationPoint(result.center, radiusMeters * 1.02, bearing);
+      const isSelected = index === zodiacIndex;
+
+      pushPolyline(
+        `zodiac-gate-tick-${index + 1}`,
+        makeRadialLine(
+          result.center,
+          radiusMeters * (isSelected ? 0.84 : 0.91),
+          radiusMeters * (isSelected ? 1.12 : 1.06),
+          bearing
+        ),
+        "magic-stroke magic-zodiac-gate magic-stroke--draw",
+        isSelected ? element.pale : element.accent,
+        isSelected ? 1.45 : 0.9,
+        isSelected ? 0.76 : 0.34,
+        420,
+        0.16
+      );
+      pushCircleAt(
+        `zodiac-gate-${constellation.id}`,
+        gateCenter,
+        radiusMeters * (isSelected ? 0.026 : 0.015),
+        isSelected ? element.pale : element.accent,
+        isSelected ? 1.15 : 0.8,
+        isSelected ? 0.82 : 0.44,
+        360,
+        "magic-circle magic-zodiac-gate magic-circle--draw",
+        0.14
+      );
+    });
+
+    zodiacConstellation.lines.forEach((line, index) => {
+      const points = line
+        .map((pointIndex) => zodiacPoints[pointIndex])
+        .filter((point): point is LatLng => Boolean(point));
+
+      if (points.length < 2) return;
+
+      pushPolyline(
+        `zodiac-line-${zodiacConstellation.id}-${index}`,
+        points,
+        "magic-stroke magic-zodiac-line magic-stroke--draw",
+        index % 2 === 0 ? element.primary : element.accent,
+        2.15,
+        0.86,
+        780,
+        0.74
+      );
+    });
+
+    zodiacPoints.forEach((point, index) => {
+      const sourcePoint: ZodiacPoint = zodiacConstellation.points[index]!;
+      pushCircleAt(
+        `zodiac-star-${zodiacConstellation.id}-${index}`,
+        point,
+        radiusMeters * 0.022 * (sourcePoint.size ?? 1),
+        index % 2 === 0 ? element.pale : element.accent,
+        1.15,
+        0.9,
+        420,
+        "magic-circle magic-zodiac-star magic-circle--draw",
+        0.22
+      );
+    });
+  }
+
   if (geometryPattern === "combined" || geometryPattern === "rose") {
     pushPolyline(
       "rose-curve",
@@ -1388,7 +1753,7 @@ export const makeMagicCircleStrokes = (
       element.accent,
       0.95,
       0.48,
-      geometryPattern === "rose" ? 0 : 30
+      geometryPattern === "sierpinski" ? 30 : 0
     );
 
     for (let index = 0; index < MAGIC_ANIMATION_COUNT; index += 1) {

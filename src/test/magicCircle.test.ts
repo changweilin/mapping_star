@@ -4,6 +4,7 @@ import {
   MAGIC_ELEMENTS,
   MAGIC_ANIMATION_COUNT,
   MAGIC_SPEED_OPTIONS,
+  ZODIAC_CONSTELLATIONS,
   makeMagicCircleStrokes
 } from "../lib/magicCircle";
 import {
@@ -188,6 +189,49 @@ describe("magic circle animations", () => {
         MAGIC_ANIMATION_COUNT
       );
     }
+  });
+
+  it("draws the twelve zodiac constellations as numeric variants", () => {
+    const result = makeResult(5);
+
+    expect(ZODIAC_CONSTELLATIONS).toHaveLength(12);
+
+    ZODIAC_CONSTELLATIONS.forEach((constellation, index) => {
+      const strokes = makeMagicCircleStrokes(result, 14, "zodiac", {
+        zodiacIndex: index
+      });
+
+      expect(
+        strokes.some(
+          (stroke) => stroke.id === `zodiac-frame-${constellation.id}`
+        )
+      ).toBe(true);
+      expect(
+        strokes.filter((stroke) =>
+          stroke.id.startsWith(`zodiac-line-${constellation.id}-`)
+        )
+      ).toHaveLength(constellation.lines.length);
+      expect(
+        strokes.filter((stroke) =>
+          stroke.id.startsWith(`zodiac-star-${constellation.id}-`)
+        )
+      ).toHaveLength(constellation.points.length);
+      expect(
+        strokes.filter(
+          (stroke) =>
+            stroke.id.startsWith("zodiac-gate-") &&
+            !stroke.id.startsWith("zodiac-gate-tick-")
+        )
+      ).toHaveLength(12);
+      expect(strokes.some((stroke) => stroke.id === "center-symbol")).toBe(
+        true
+      );
+      expect(
+        strokes.some(
+          (stroke) => stroke.kind === "symbol" && stroke.role === "endpoint"
+        )
+      ).toBe(false);
+    });
   });
 
   it("applies numeric drawing variants to rose and Sierpinski geometry", () => {

@@ -56,6 +56,7 @@ import {
   getMagicElement,
   getMagicAnimationOptions,
   MAGIC_SPEED_OPTIONS,
+  ZODIAC_CONSTELLATIONS,
   makeMagicCircleStrokes,
   type MagicCircleStroke,
   type MagicCircleGeometryOptions,
@@ -97,7 +98,13 @@ import type {
 } from "./types";
 
 type MagicPlaybackMode = "single" | "continuous" | "loop-all" | "loop-one";
-type MagicDrawShape = "star" | "cross" | "bagua" | "rose" | "sierpinski";
+type MagicDrawShape =
+  | "star"
+  | "cross"
+  | "bagua"
+  | "rose"
+  | "sierpinski"
+  | "zodiac";
 type MagicDrawVariantOption = {
   id: string;
   label: string;
@@ -159,7 +166,8 @@ const MAGIC_DRAW_SHAPE_OPTIONS = [
   { id: "cross", label: "十字星" },
   { id: "bagua", label: "八卦陣" },
   { id: "rose", label: "玫瑰曲線" },
-  { id: "sierpinski", label: "Sierpinski 三角形" }
+  { id: "sierpinski", label: "Sierpinski 三角形" },
+  { id: "zodiac", label: "星座" }
 ] satisfies Array<{ id: MagicDrawShape; label: string }>;
 const MAGIC_DRAW_VARIANT_OPTIONS = {
   star: [
@@ -181,14 +189,23 @@ const MAGIC_DRAW_VARIANT_OPTIONS = {
     label: `d=${depth}`,
     geometryPattern: "sierpinski",
     geometryOptions: { sierpinskiDepth: depth }
-  }))
+  })),
+  zodiac: ZODIAC_CONSTELLATIONS.map(
+    (constellation, index): MagicDrawVariantOption => ({
+      id: `${index + 1}`,
+      label: `${index + 1} ${constellation.name}`,
+      geometryPattern: "zodiac",
+      geometryOptions: { zodiacIndex: index }
+    })
+  )
 } satisfies Record<MagicDrawShape, MagicDrawVariantOption[]>;
 const DEFAULT_MAGIC_DRAW_VARIANTS = {
   star: "5",
   cross: "4",
   bagua: "8",
   rose: "k-7",
-  sierpinski: "d-3"
+  sierpinski: "d-3",
+  zodiac: "1"
 } satisfies Record<MagicDrawShape, string>;
 
 const MOBILE_SETTINGS_TABS = [
@@ -4622,6 +4639,32 @@ function App() {
               ))}
             </select>
           </label>
+          {magicDrawShape === "zodiac" && (
+            <div
+              className="zodiac-number-grid"
+              role="group"
+              aria-label="十二星座數字切換"
+            >
+              {magicDrawVariantOptions.map(({ id, label }, index) => (
+                <button
+                  aria-label={`切換到 ${label}`}
+                  aria-pressed={magicDrawVariantValue === id}
+                  className={
+                    magicDrawVariantValue === id
+                      ? "zodiac-number-button selected"
+                      : "zodiac-number-button"
+                  }
+                  disabled={isSearchSettingsLocked}
+                  key={id}
+                  title={label}
+                  type="button"
+                  onClick={() => handleMagicDrawVariantChange(id)}
+                >
+                  {index + 1}
+                </button>
+              ))}
+            </div>
+          )}
         </section>
 
         <nav className="mobile-settings-tabs" aria-label="手機設定頁籤">
