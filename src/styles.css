@@ -279,7 +279,7 @@ a {
 
 .magic-draw-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: stretch;
   gap: 8px;
   padding: 7px;
@@ -292,6 +292,12 @@ a {
 .magic-draw-actions .search-draw-button {
   min-width: 0;
   min-height: 38px;
+  padding-inline: 8px;
+}
+
+.magic-draw-actions .search-draw-button span {
+  min-width: 0;
+  line-height: 1.15;
 }
 
 .magic-draw-actions .mode-row {
@@ -1015,6 +1021,11 @@ a {
 .select-wrap select:focus {
   border-color: var(--blue);
   box-shadow: 0 0 0 3px rgba(38, 63, 209, 0.14);
+}
+
+.select-wrap select:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
 }
 
 @keyframes select-marquee {
@@ -2958,7 +2969,7 @@ a {
   }
 
   .magic-draw-actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
     padding: 6px;
   }

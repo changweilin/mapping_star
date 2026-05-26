@@ -52,6 +52,8 @@ import {
   MAGIC_SPEED_OPTIONS,
   makeMagicCircleStrokes,
   type MagicCircleStroke,
+  type MagicCircleGeometryOptions,
+  type MagicCombinedShape,
   type MagicGeometryPattern,
   type MagicSpeed
 } from "./lib/magicCircle";
@@ -69,9 +71,7 @@ import {
   type MapLayerId
 } from "./lib/settings";
 import {
-  isStarMode,
   maxAngleToleranceForMode,
-  STAR_PATTERN_OPTIONS,
   starModeLabel
 } from "./lib/starPatterns";
 import {
@@ -91,7 +91,14 @@ import type {
 } from "./types";
 
 type MagicPlaybackMode = "single" | "continuous" | "loop-all" | "loop-one";
-type MagicGeometrySelectPattern = Exclude<MagicGeometryPattern, "combined">;
+type MagicDrawShape = "star" | "cross" | "bagua" | "rose" | "sierpinski";
+type MagicDrawVariantOption = {
+  id: string;
+  label: string;
+  mode?: StarMode;
+  geometryPattern: MagicGeometryPattern;
+  geometryOptions?: MagicCircleGeometryOptions;
+};
 type MobileSettingsTab =
   | "search"
   | "categories"
@@ -132,10 +139,54 @@ const MAGIC_PLAYBACK_MODES = [
   { id: "loop-all", label: "循環播放" },
   { id: "loop-one", label: "單曲循環播放" }
 ] satisfies Array<{ id: MagicPlaybackMode; label: string }>;
-const MAGIC_GEOMETRY_PATTERN_OPTIONS = [
+const makeCombinedVariant = (
+  id: string,
+  label: string,
+  mode: StarMode,
+  combinedShape: MagicCombinedShape
+): MagicDrawVariantOption => ({
+  id,
+  label,
+  mode,
+  geometryPattern: "combined",
+  geometryOptions: { combinedShape }
+});
+const MAGIC_DRAW_SHAPE_OPTIONS = [
+  { id: "star", label: "星芒" },
+  { id: "cross", label: "十字星" },
+  { id: "bagua", label: "八卦陣" },
   { id: "rose", label: "玫瑰曲線" },
   { id: "sierpinski", label: "Sierpinski 三角形" }
-] satisfies Array<{ id: MagicGeometrySelectPattern; label: string }>;
+] satisfies Array<{ id: MagicDrawShape; label: string }>;
+const MAGIC_DRAW_VARIANT_OPTIONS = {
+  star: [
+    makeCombinedVariant("5", "5", 5, "star"),
+    makeCombinedVariant("6", "6", 6, "star"),
+    makeCombinedVariant("7", "7", 7, "star"),
+    makeCombinedVariant("8", "8", 8, "star")
+  ],
+  cross: [makeCombinedVariant("4", "4", 4, "cross")],
+  bagua: [makeCombinedVariant("8", "8", 8, "bagua")],
+  rose: [3, 5, 7, 9].map((petalFactor): MagicDrawVariantOption => ({
+    id: `k-${petalFactor}`,
+    label: `k=${petalFactor}`,
+    geometryPattern: "rose",
+    geometryOptions: { rosePetalFactor: petalFactor }
+  })),
+  sierpinski: [1, 2, 3, 4].map((depth): MagicDrawVariantOption => ({
+    id: `d-${depth}`,
+    label: `d=${depth}`,
+    geometryPattern: "sierpinski",
+    geometryOptions: { sierpinskiDepth: depth }
+  }))
+} satisfies Record<MagicDrawShape, MagicDrawVariantOption[]>;
+const DEFAULT_MAGIC_DRAW_VARIANTS = {
+  star: "5",
+  cross: "4",
+  bagua: "8",
+  rose: "k-7",
+  sierpinski: "d-3"
+} satisfies Record<MagicDrawShape, string>;
 
 const MOBILE_SETTINGS_TABS = [
   { id: "search", label: "搜索中心" },
@@ -599,10 +650,27 @@ const formatClockTime = (isoValue: string | null | undefined) => {
 
 const getStarModeLabel = starModeLabel;
 
-const isMagicGeometrySelectPattern = (
-  value: string
-): value is MagicGeometrySelectPattern =>
-  MAGIC_GEOMETRY_PATTERN_OPTIONS.some((option) => option.id === value);
+const isMagicDrawShape = (value: string): value is MagicDrawShape =>
+  MAGIC_DRAW_SHAPE_OPTIONS.some((option) => option.id === value);
+
+const getMagicDrawShapeForMode = (mode: StarMode): MagicDrawShape =>
+  mode === 4 ? "cross" : mode === 8 ? "bagua" : "star";
+
+const getMagicDrawVariantOption = (
+  shape: MagicDrawShape,
+  value: string | undefined
+) => {
+  const options = MAGIC_DRAW_VARIANT_OPTIONS[shape];
+  return options.find((option) => option.id === value) ?? options[0]!;
+};
+
+const makeInitialMagicDrawVariants = (mode: StarMode) => {
+  const shape = getMagicDrawShapeForMode(mode);
+  return {
+    ...DEFAULT_MAGIC_DRAW_VARIANTS,
+    [shape]: String(mode)
+  };
+};
 
 const getSearchStrategyLabel = ({
   searchStrategy,
@@ -1711,8 +1779,16 @@ function App() {
   );
   const [selectedPoi, setSelectedPoi] = useState<Poi | null>(null);
   const [magicAnimationIndex, setMagicAnimationIndex] = useState(0);
-  const [magicGeometryPattern, setMagicGeometryPattern] =
-    useState<MagicGeometryPattern>("combined");
+  const [magicDrawShape, setMagicDrawShape] = useState<MagicDrawShape>(() =>
+    getMagicDrawShapeForMode(initialLastStar?.mode ?? initialSettings.starMode)
+  );
+  const [magicDrawVariantByShape, setMagicDrawVariantByShape] = useState<
+    Record<MagicDrawShape, string>
+  >(() =>
+    makeInitialMagicDrawVariants(
+      initialLastStar?.mode ?? initialSettings.starMode
+    )
+  );
   const [magicPlayback, setMagicPlayback] =
     useState<MagicPlayback>("playing");
   const magicPlaybackRef = useRef<MagicPlayback>("playing");
@@ -1805,10 +1881,20 @@ function App() {
   const magicAnimationLabel =
     magicAnimationOptions.find((option) => option.index === magicAnimationIndex)
       ?.label ?? magicAnimationOptions[0]?.label ?? "動畫";
-  const patternModeSelectValue =
-    magicGeometryPattern === "combined"
-      ? String(starMode)
-      : magicGeometryPattern;
+  const magicDrawShapeLabel =
+    MAGIC_DRAW_SHAPE_OPTIONS.find((option) => option.id === magicDrawShape)
+      ?.label ?? MAGIC_DRAW_SHAPE_OPTIONS[0].label;
+  const magicDrawVariantOptions = MAGIC_DRAW_VARIANT_OPTIONS[magicDrawShape];
+  const magicDrawVariant = getMagicDrawVariantOption(
+    magicDrawShape,
+    magicDrawVariantByShape[magicDrawShape]
+  );
+  const magicDrawVariantValue = magicDrawVariant.id;
+  const magicDrawVariantLabel = magicDrawVariant.label;
+  const isMagicDrawVariantLocked = magicDrawVariantOptions.length <= 1;
+  const magicGeometryPattern = magicDrawVariant.geometryPattern;
+  const magicGeometryOptions = magicDrawVariant.geometryOptions;
+  const magicGeometryVariantKey = `${magicDrawShape}:${magicDrawVariant.id}`;
   const currentMapLayerOption =
     MAP_LAYER_OPTIONS.find((option) => option.id === mapLayer) ??
     MAP_LAYER_OPTIONS[0];
@@ -2301,7 +2387,8 @@ function App() {
     const strokes = makeMagicCircleStrokes(
       result,
       magicAnimationIndex,
-      magicGeometryPattern
+      magicGeometryPattern,
+      magicGeometryOptions
     );
     return Math.round(
       (getMagicTimelineDurationMs(result, strokes) +
@@ -2447,7 +2534,8 @@ function App() {
     const strokes = makeMagicCircleStrokes(
       result,
       animationIndex,
-      magicGeometryPattern
+      magicGeometryPattern,
+      magicGeometryOptions
     );
     const durationMs = getMagicTimelineDurationMs(result, strokes);
 
@@ -2654,23 +2742,37 @@ function App() {
     setMagicPlaybackState("playing");
     setMagicReplayKey((key) => key + 1);
   };
-  const handlePatternModeChange = (value: string) => {
-    const nextMode = Number(value);
-
-    if (isStarMode(nextMode)) {
+  const applyMagicDrawVariant = (variant: MagicDrawVariantOption) => {
+    const nextMode = variant.mode;
+    if (nextMode !== undefined) {
       setStarMode(nextMode);
-      setMagicGeometryPattern("combined");
       setAngleToleranceDeg((current) =>
         Math.min(current, maxAngleToleranceForMode(nextMode))
       );
-      restartMagicDrawing();
-      return;
     }
-
-    if (!isMagicGeometrySelectPattern(value)) return;
-
-    setMagicGeometryPattern(value);
     restartMagicDrawing();
+  };
+  const handleMagicDrawShapeChange = (value: string) => {
+    if (!isMagicDrawShape(value)) return;
+
+    const nextVariant = getMagicDrawVariantOption(
+      value,
+      magicDrawVariantByShape[value]
+    );
+    setMagicDrawShape(value);
+    setMagicDrawVariantByShape((current) => ({
+      ...current,
+      [value]: nextVariant.id
+    }));
+    applyMagicDrawVariant(nextVariant);
+  };
+  const handleMagicDrawVariantChange = (value: string) => {
+    const nextVariant = getMagicDrawVariantOption(magicDrawShape, value);
+    setMagicDrawVariantByShape((current) => ({
+      ...current,
+      [magicDrawShape]: nextVariant.id
+    }));
+    applyMagicDrawVariant(nextVariant);
   };
   const stepMagicPlaybackMode = (step: number) => {
     handleMagicPlaybackModeChange(
@@ -3056,6 +3158,7 @@ function App() {
     magicAnimationIndex,
     magicDirection,
     magicGeometryPattern,
+    magicGeometryVariantKey,
     magicPlayback,
     magicPlaybackMode,
     magicReplayKey,
@@ -3235,6 +3338,7 @@ function App() {
     effectiveAngleToleranceDeg,
     innerRadiusMeters,
     magicGeometryPattern,
+    magicGeometryVariantKey,
     outerRadiusMeters,
     selectedResult,
     showSectors
@@ -3250,7 +3354,8 @@ function App() {
     const magicStrokes = makeMagicCircleStrokes(
       selectedResult,
       magicAnimationIndex,
-      magicGeometryPattern
+      magicGeometryPattern,
+      magicGeometryOptions
     );
     const timelineDurationMs = getMagicTimelineDurationMs(
       selectedResult,
@@ -3351,6 +3456,7 @@ function App() {
     magicAnimationIndex,
     magicDirection,
     magicGeometryPattern,
+    magicGeometryVariantKey,
     magicReplayKey,
     magicSpeed,
     selectedResult
@@ -3359,7 +3465,7 @@ function App() {
   useEffect(() => {
     if (!selectedResult) return;
     fitMapToResult(selectedResult);
-  }, [magicGeometryPattern, selectedResult?.id]);
+  }, [magicGeometryPattern, magicGeometryVariantKey, selectedResult?.id]);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -4096,6 +4202,7 @@ function App() {
       angleToleranceDeg,
       maxAngleToleranceForMode(restoredStar.mode)
     );
+    const restoredMagicDrawShape = getMagicDrawShapeForMode(restoredStar.mode);
 
     skipNextAutoSolveRef.current = makeAutoSolveKey({
       mode: restoredStar.mode,
@@ -4111,6 +4218,11 @@ function App() {
     setCenter(restoredStar.center);
     setCenterName(restoredStar.name ?? favorite.name);
     setStarMode(restoredStar.mode);
+    setMagicDrawShape(restoredMagicDrawShape);
+    setMagicDrawVariantByShape((current) => ({
+      ...current,
+      [restoredMagicDrawShape]: String(restoredStar.mode)
+    }));
     setInnerRadiusKm(nextInnerRadiusKm);
     setOuterRadiusKm(nextOuterRadiusKm);
     setResults([restoredStar]);
@@ -4364,21 +4476,37 @@ function App() {
             <Play size={17} />
             <span>{searchDrawButtonLabel}</span>
           </button>
-          <label className="select-wrap select-wrap--compact pattern-mode-select">
+          <label className="select-wrap select-wrap--compact pattern-mode-select magic-draw-select">
             <select
-              aria-label="圖案模式"
-              value={patternModeSelectValue}
+              aria-label="魔法陣形體"
+              value={magicDrawShape}
               disabled={isSearchSettingsLocked}
               onChange={(event: ChangeEvent<HTMLSelectElement>) => {
-                handlePatternModeChange(event.target.value);
+                handleMagicDrawShapeChange(event.target.value);
               }}
             >
-              {STAR_PATTERN_OPTIONS.map(({ mode, label }) => (
-                <option value={String(mode)} key={mode}>
+              {MAGIC_DRAW_SHAPE_OPTIONS.map(({ id, label }) => (
+                <option value={id} key={id}>
                   {label}
                 </option>
               ))}
-              {MAGIC_GEOMETRY_PATTERN_OPTIONS.map(({ id, label }) => (
+            </select>
+          </label>
+          <label className="select-wrap select-wrap--compact pattern-mode-select magic-draw-select">
+            <select
+              aria-label={`${magicDrawShapeLabel}數值`}
+              value={magicDrawVariantValue}
+              disabled={isSearchSettingsLocked || isMagicDrawVariantLocked}
+              title={
+                isMagicDrawVariantLocked
+                  ? `${magicDrawShapeLabel}只有 ${magicDrawVariantLabel} 一種數值`
+                  : `${magicDrawShapeLabel} ${magicDrawVariantLabel}`
+              }
+              onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+                handleMagicDrawVariantChange(event.target.value);
+              }}
+            >
+              {magicDrawVariantOptions.map(({ id, label }) => (
                 <option value={id} key={id}>
                   {label}
                 </option>

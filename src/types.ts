@@ -29,7 +29,7 @@ export interface Poi {
   bearingDeg: number;
 }
 
-export type StarMode = 4 | 5 | 6 | 8;
+export type StarMode = 4 | 5 | 6 | 7 | 8;
 export type SearchStrategy = "angular" | "honeycomb";
 
 export interface StarResult {

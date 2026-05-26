@@ -79,7 +79,7 @@ const pointPosition = (point: Poi) => ({ lat: point.lat, lng: point.lng });
 
 describe("magic circle animations", () => {
   it("offers 16 element-named choices for every pattern", () => {
-    for (const mode of [4, 5, 6, 8] as const) {
+    for (const mode of [4, 5, 6, 7, 8] as const) {
       expect(getMagicAnimationOptions(mode)).toHaveLength(MAGIC_ANIMATION_COUNT);
     }
     expect(MAGIC_ANIMATION_COUNT).toBe(16);
@@ -93,7 +93,7 @@ describe("magic circle animations", () => {
   });
 
   it("adds 16 sequential rune strokes around each magic circle", () => {
-    for (const mode of [4, 5, 6, 8] as const) {
+    for (const mode of [4, 5, 6, 7, 8] as const) {
       const strokes = makeMagicCircleStrokes(makeResult(mode), 3);
       const runeStrokes = strokes.filter((stroke) =>
         stroke.id.startsWith("rune-")
@@ -188,6 +188,33 @@ describe("magic circle animations", () => {
         MAGIC_ANIMATION_COUNT
       );
     }
+  });
+
+  it("applies numeric drawing variants to rose and Sierpinski geometry", () => {
+    const result = makeResult(5);
+    const roseStrokes = makeMagicCircleStrokes(result, 14, "rose", {
+      rosePetalFactor: 3
+    });
+    const roseCurve = roseStrokes.find((stroke) => stroke.id === "rose-curve");
+    if (!roseCurve || roseCurve.kind !== "polyline") {
+      throw new Error("Expected a rose curve polyline");
+    }
+    expect(
+      haversineDistanceMeters(result.center, roseCurve.points[16])
+    ).toBeLessThan(0.001);
+
+    const shallowTriangles = makeMagicCircleStrokes(
+      result,
+      14,
+      "sierpinski",
+      { sierpinskiDepth: 2 }
+    ).filter((stroke) => stroke.id.startsWith("sierpinski-triangle-"));
+    const deepTriangles = makeMagicCircleStrokes(result, 14, "sierpinski", {
+      sierpinskiDepth: 4
+    }).filter((stroke) => stroke.id.startsWith("sierpinski-triangle-"));
+
+    expect(shallowTriangles).toHaveLength(9);
+    expect(deepTriangles).toHaveLength(81);
   });
 
   it("applies the selected element class and palette to every variant", () => {
@@ -326,7 +353,7 @@ describe("magic circle animations", () => {
 
   it("uses mode-specific foundation frames for every pattern", () => {
     for (const [index, element] of MAGIC_ELEMENTS.entries()) {
-      for (const mode of [4, 5, 6, 8] as const) {
+      for (const mode of [4, 5, 6, 7, 8] as const) {
         const strokes = makeMagicCircleStrokes(makeResult(mode), index);
 
         expect(
@@ -345,6 +372,12 @@ describe("magic circle animations", () => {
   it("adds pattern-specific strokes for cross star and bagua drawings", () => {
     const crossStrokes = makeMagicCircleStrokes(makeResult(4), 0);
     const baguaStrokes = makeMagicCircleStrokes(makeResult(8), 0);
+    const eightPointStarStrokes = makeMagicCircleStrokes(
+      makeResult(8),
+      0,
+      "combined",
+      { combinedShape: "star" }
+    );
 
     expect(crossStrokes.some((stroke) => stroke.id === "cross-star-axis-0")).toBe(
       true
@@ -355,5 +388,13 @@ describe("magic circle animations", () => {
     expect(
       baguaStrokes.some((stroke) => stroke.id.startsWith("bagua-trigram-"))
     ).toBe(true);
+    expect(
+      eightPointStarStrokes.some((stroke) => stroke.id === "bagua-taiji-ring")
+    ).toBe(false);
+    expect(
+      eightPointStarStrokes.some((stroke) =>
+        stroke.id.startsWith("bagua-trigram-")
+      )
+    ).toBe(false);
   });
 });

@@ -43,6 +43,25 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   mapLayer: "street"
 };
 
+type SettingsSource = Partial<AppSettings> & { radiusKm?: unknown };
+
+const LEGACY_DEFAULT_OUTER_RADIUS_KM = 30;
+const LEGACY_DEFAULT_INNER_RADIUS_KM = 0;
+const LEGACY_DEFAULT_ANGLE_TOLERANCE_BY_MODE: Partial<Record<StarMode, number>> =
+  {
+    5: 36,
+    6: 30
+  };
+const LEGACY_DEFAULT_CANDIDATES_PER_SLOT = 8;
+
+const toFiniteNumber = (value: unknown) => {
+  const numberValue = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
+};
+
+const matchesStoredNumber = (value: unknown, expected: number) =>
+  toFiniteNumber(value) === expected;
+
 const clampNumber = (value: unknown, min: number, max: number, fallback: number) => {
   const numberValue = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(numberValue)) return fallback;
@@ -149,11 +168,52 @@ const parseCategoryIds = (value: unknown, selectedCategoryGroups: string[]) => {
   return mergedIds.length > 0 ? mergedIds : DEFAULT_CATEGORY_IDS;
 };
 
+const migrateLegacyDefaultSettings = (source: SettingsSource): SettingsSource => {
+  let migratedSource: SettingsSource | null = null;
+  const mutableSource = () => {
+    migratedSource ??= { ...source };
+    return migratedSource;
+  };
+  const starMode = parseStarMode(source.starMode);
+  const outerRadiusSource = source.outerRadiusKm ?? source.radiusKm;
+  const hasLegacyDefaultRadiusRange =
+    matchesStoredNumber(outerRadiusSource, LEGACY_DEFAULT_OUTER_RADIUS_KM) &&
+    (source.innerRadiusKm === undefined ||
+      matchesStoredNumber(source.innerRadiusKm, LEGACY_DEFAULT_INNER_RADIUS_KM));
+  const legacyDefaultAngleTolerance =
+    LEGACY_DEFAULT_ANGLE_TOLERANCE_BY_MODE[starMode];
+
+  if (hasLegacyDefaultRadiusRange) {
+    const nextSource = mutableSource();
+    nextSource.innerRadiusKm = DEFAULT_APP_SETTINGS.innerRadiusKm;
+    nextSource.outerRadiusKm = DEFAULT_APP_SETTINGS.outerRadiusKm;
+  }
+
+  if (
+    legacyDefaultAngleTolerance !== undefined &&
+    matchesStoredNumber(source.angleToleranceDeg, legacyDefaultAngleTolerance)
+  ) {
+    mutableSource().angleToleranceDeg = DEFAULT_APP_SETTINGS.angleToleranceDeg;
+  }
+
+  if (
+    matchesStoredNumber(
+      source.candidatesPerSlot,
+      LEGACY_DEFAULT_CANDIDATES_PER_SLOT
+    )
+  ) {
+    mutableSource().candidatesPerSlot = DEFAULT_APP_SETTINGS.candidatesPerSlot;
+  }
+
+  return migratedSource ?? source;
+};
+
 export const normalizeSettings = (value: unknown): AppSettings => {
-  const source: Partial<AppSettings> & { radiusKm?: unknown } =
+  const rawSource: SettingsSource =
     value && typeof value === "object"
-      ? (value as Partial<AppSettings> & { radiusKm?: unknown })
+      ? (value as SettingsSource)
       : DEFAULT_APP_SETTINGS;
+  const source = migrateLegacyDefaultSettings(rawSource);
   const starMode = parseStarMode(source.starMode);
   const maxAngleToleranceDeg = maxAngleToleranceForMode(starMode);
   const outerRadiusKm = clampNumber(

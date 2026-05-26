@@ -9,7 +9,7 @@ export const formatStarNameDistance = (meters: number) => {
   return `${kilometers.toFixed(precision).replace(/\.0$/, "")}km`;
 };
 
-const starModeNamePattern = "(?:五芒星|六芒星|十字星|八卦圖)";
+const starModeNamePattern = "(?:五芒星|六芒星|七芒星|十字星|八卦圖)";
 const trailingStarNamePattern = new RegExp(
   `\\s+(?:(?:${starModeNamePattern})\\s+半徑\\d+(?:\\.\\d+)?km\\s+角度\\d+(?:\\.\\d+)?°\\s+誤差\\d+(?:\\.\\d+)?°|\\d+(?:\\.\\d+)?km\\s+${starModeNamePattern})$`
 );

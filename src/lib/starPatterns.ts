@@ -3,6 +3,7 @@ import type { StarMode } from "../types";
 export const STAR_PATTERN_OPTIONS = [
   { mode: 5, label: "五芒星" },
   { mode: 6, label: "六芒星" },
+  { mode: 7, label: "七芒星" },
   { mode: 4, label: "十字星" },
   { mode: 8, label: "八卦圖" }
 ] as const satisfies readonly { mode: StarMode; label: string }[];
@@ -39,6 +40,8 @@ export const starLineSequencesForMode = (mode: StarMode): number[][] => {
         [0, 2, 4, 0],
         [1, 3, 5, 1]
       ];
+    case 7:
+      return [[0, 2, 4, 6, 1, 3, 5, 0]];
     case 8:
       return [
         [0, 1, 2, 3, 4, 5, 6, 7, 0],

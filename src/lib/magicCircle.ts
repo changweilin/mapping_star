@@ -450,6 +450,13 @@ export const MAGIC_SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4] as const;
 export type MagicSpeed = (typeof MAGIC_SPEED_OPTIONS)[number];
 export type MagicElementId = (typeof MAGIC_ELEMENTS)[number]["id"];
 export type MagicGeometryPattern = "combined" | "rose" | "sierpinski";
+export type MagicCombinedShape = "star" | "cross" | "bagua";
+
+export type MagicCircleGeometryOptions = {
+  combinedShape?: MagicCombinedShape;
+  rosePetalFactor?: number;
+  sierpinskiDepth?: number;
+};
 
 interface MagicStrokeBase {
   id: string;
@@ -666,6 +673,35 @@ const makeSierpinskiTriangleSegments = (
   return buildSegments(top, right, left, depth);
 };
 
+const clampInteger = (
+  value: number | undefined,
+  fallback: number,
+  min: number,
+  max: number
+) => {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(value)));
+};
+
+const getDefaultCombinedShape = (mode: StarMode): MagicCombinedShape =>
+  mode === 4 ? "cross" : mode === 8 ? "bagua" : "star";
+
+const getMagicStarLineSequences = (
+  mode: StarMode,
+  combinedShape: MagicCombinedShape
+) => {
+  if (combinedShape !== "star") return starLineSequences(mode);
+
+  switch (mode) {
+    case 7:
+      return [[0, 2, 4, 6, 1, 3, 5, 0]];
+    case 8:
+      return [[0, 3, 6, 1, 4, 7, 2, 5, 0]];
+    default:
+      return starLineSequences(mode);
+  }
+};
+
 const pointFromPoi = (point: StarResult["points"][number]): LatLng => ({
   lat: point.lat,
   lng: point.lng
@@ -785,11 +821,26 @@ const makeRuneStroke = ({
 export const makeMagicCircleStrokes = (
   result: StarResult,
   animationIndex: number,
-  geometryPattern: MagicGeometryPattern = "combined"
+  geometryPattern: MagicGeometryPattern = "combined",
+  geometryOptions: MagicCircleGeometryOptions = {}
 ): MagicCircleStroke[] => {
   const normalizedIndex = normalizeMagicAnimationIndex(animationIndex);
   const element = getMagicElement(normalizedIndex);
   const mode = result.mode;
+  const combinedShape =
+    geometryOptions.combinedShape ?? getDefaultCombinedShape(mode);
+  const rosePetalFactor = clampInteger(
+    geometryOptions.rosePetalFactor,
+    ROSE_CURVE_PETAL_FACTOR,
+    1,
+    12
+  );
+  const sierpinskiDepth = clampInteger(
+    geometryOptions.sierpinskiDepth,
+    SIERPINSKI_TRIANGLE_DEPTH,
+    0,
+    5
+  );
   const modeSlotDeg = FULL_CIRCLE_DEGREES / mode;
   const phaseDeg = normalizeDegrees(result.rotationDeg);
   const visualPhaseDeg =
@@ -1296,7 +1347,7 @@ export const makeMagicCircleStrokes = (
       makeRoseCurvePoints(
         result.center,
         radiusMeters * (geometryPattern === "rose" ? 0.56 : 0.44),
-        geometryPattern === "rose" ? ROSE_CURVE_PETAL_FACTOR : mode,
+        geometryPattern === "rose" ? rosePetalFactor : mode,
         phaseDeg
       ),
       "magic-stroke magic-rose-curve magic-stroke--draw",
@@ -1313,7 +1364,7 @@ export const makeMagicCircleStrokes = (
       result.center,
       radiusMeters * 0.82,
       phaseDeg,
-      SIERPINSKI_TRIANGLE_DEPTH
+      sierpinskiDepth
     ).forEach((points, index) => {
       pushPolyline(
         `sierpinski-triangle-${index}`,
@@ -1331,7 +1382,7 @@ export const makeMagicCircleStrokes = (
   if (geometryPattern !== "combined") {
     addRadialTicks(
       `${geometryPattern}-independent-axis`,
-      geometryPattern === "rose" ? 14 : 12,
+      geometryPattern === "rose" ? rosePetalFactor * 2 : 12,
       0.18,
       1.02,
       element.accent,
@@ -1409,20 +1460,22 @@ export const makeMagicCircleStrokes = (
     return strokes;
   }
 
-  starLineSequences(mode).forEach((sequencePoints, index) => {
-    pushPolyline(
-      `star-line-${index}`,
-      sequencePoints.map((pointIndex) =>
-        pointFromPoi(result.points[pointIndex])
-      ),
-      "star-line star-line--draw",
-      element.primary,
-      element.lineStyle === "radiant" ? 3.35 : 3,
-      0.92,
-      980,
-      1.25
-    );
-  });
+  getMagicStarLineSequences(mode, combinedShape).forEach(
+    (sequencePoints, index) => {
+      pushPolyline(
+        `star-line-${index}`,
+        sequencePoints.map((pointIndex) =>
+          pointFromPoi(result.points[pointIndex])
+        ),
+        "star-line star-line--draw",
+        element.primary,
+        element.lineStyle === "radiant" ? 3.35 : 3,
+        0.92,
+        980,
+        1.25
+      );
+    }
+  );
 
   pushPolyline(
     "outer-polygon",
@@ -1449,7 +1502,7 @@ export const makeMagicCircleStrokes = (
     760
   );
 
-  if (mode === 4) {
+  if (combinedShape === "cross" && mode === 4) {
     addRadialTicks("cross-star-axis", 4, 0.18, 1.08, element.accent, 1.35, 0.66, 0);
     for (let index = 0; index < 4; index += 1) {
       const bearing = phaseDeg + index * modeSlotDeg + modeSlotDeg / 2;
@@ -1472,7 +1525,7 @@ export const makeMagicCircleStrokes = (
     }
   }
 
-  if (mode === 8) {
+  if (combinedShape === "bagua" && mode === 8) {
     pushCircle("bagua-taiji-ring", 0.24, element.pale, 1.15, 0.58, 520);
     pushPolyline(
       "bagua-taiji-curve",

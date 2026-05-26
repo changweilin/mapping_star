@@ -39,6 +39,49 @@ describe("settings helpers", () => {
     expect(DEFAULT_APP_SETTINGS.showHoneycomb).toBe(false);
   });
 
+  it("migrates legacy persisted solver defaults to the current defaults", () => {
+    const settings = normalizeSettings({
+      innerRadiusKm: 0,
+      outerRadiusKm: 30,
+      starMode: 5,
+      angleToleranceDeg: 36,
+      candidatesPerSlot: 8
+    });
+
+    expect(settings.innerRadiusKm).toBe(4);
+    expect(settings.outerRadiusKm).toBe(6);
+    expect(settings.angleToleranceDeg).toBe(6);
+    expect(settings.candidatesPerSlot).toBe(4);
+  });
+
+  it("migrates the old single-radius default to the current radius range", () => {
+    const settings = normalizeSettings({
+      radiusKm: 30,
+      starMode: 6,
+      angleToleranceDeg: 30,
+      candidatesPerSlot: 8
+    });
+
+    expect(settings.innerRadiusKm).toBe(4);
+    expect(settings.outerRadiusKm).toBe(6);
+    expect(settings.angleToleranceDeg).toBe(6);
+    expect(settings.candidatesPerSlot).toBe(4);
+  });
+
+  it("keeps custom persisted solver settings", () => {
+    const settings = normalizeSettings({
+      innerRadiusKm: 2,
+      outerRadiusKm: 11,
+      angleToleranceDeg: 12,
+      candidatesPerSlot: 5
+    });
+
+    expect(settings.innerRadiusKm).toBe(2);
+    expect(settings.outerRadiusKm).toBe(11);
+    expect(settings.angleToleranceDeg).toBe(12);
+    expect(settings.candidatesPerSlot).toBe(5);
+  });
+
   it("clamps persisted radius range and solver controls to the current UI ranges", () => {
     const settings = normalizeSettings({
       innerRadiusKm: 40,
