@@ -52,6 +52,7 @@ import {
   MAGIC_SPEED_OPTIONS,
   makeMagicCircleStrokes,
   type MagicCircleStroke,
+  type MagicGeometryPattern,
   type MagicSpeed
 } from "./lib/magicCircle";
 import {
@@ -90,6 +91,7 @@ import type {
 } from "./types";
 
 type MagicPlaybackMode = "single" | "continuous" | "loop-all" | "loop-one";
+type MagicGeometrySelectPattern = Exclude<MagicGeometryPattern, "combined">;
 type MobileSettingsTab =
   | "search"
   | "categories"
@@ -130,6 +132,10 @@ const MAGIC_PLAYBACK_MODES = [
   { id: "loop-all", label: "循環播放" },
   { id: "loop-one", label: "單曲循環播放" }
 ] satisfies Array<{ id: MagicPlaybackMode; label: string }>;
+const MAGIC_GEOMETRY_PATTERN_OPTIONS = [
+  { id: "rose", label: "玫瑰曲線" },
+  { id: "sierpinski", label: "Sierpinski 三角形" }
+] satisfies Array<{ id: MagicGeometrySelectPattern; label: string }>;
 
 const MOBILE_SETTINGS_TABS = [
   { id: "search", label: "搜索中心" },
@@ -593,10 +599,10 @@ const formatClockTime = (isoValue: string | null | undefined) => {
 
 const getStarModeLabel = starModeLabel;
 
-const parseStarModeSelectValue = (value: string): StarMode => {
-  const mode = Number(value);
-  return isStarMode(mode) ? mode : DEFAULT_APP_SETTINGS.starMode;
-};
+const isMagicGeometrySelectPattern = (
+  value: string
+): value is MagicGeometrySelectPattern =>
+  MAGIC_GEOMETRY_PATTERN_OPTIONS.some((option) => option.id === value);
 
 const getSearchStrategyLabel = ({
   searchStrategy,
@@ -1705,6 +1711,8 @@ function App() {
   );
   const [selectedPoi, setSelectedPoi] = useState<Poi | null>(null);
   const [magicAnimationIndex, setMagicAnimationIndex] = useState(0);
+  const [magicGeometryPattern, setMagicGeometryPattern] =
+    useState<MagicGeometryPattern>("combined");
   const [magicPlayback, setMagicPlayback] =
     useState<MagicPlayback>("playing");
   const magicPlaybackRef = useRef<MagicPlayback>("playing");
@@ -1797,6 +1805,10 @@ function App() {
   const magicAnimationLabel =
     magicAnimationOptions.find((option) => option.index === magicAnimationIndex)
       ?.label ?? magicAnimationOptions[0]?.label ?? "動畫";
+  const patternModeSelectValue =
+    magicGeometryPattern === "combined"
+      ? String(starMode)
+      : magicGeometryPattern;
   const currentMapLayerOption =
     MAP_LAYER_OPTIONS.find((option) => option.id === mapLayer) ??
     MAP_LAYER_OPTIONS[0];
@@ -2286,7 +2298,11 @@ function App() {
   const getEstimatedMagicAnimationMs = (result: StarResult | null) => {
     if (!result) return null;
 
-    const strokes = makeMagicCircleStrokes(result, magicAnimationIndex);
+    const strokes = makeMagicCircleStrokes(
+      result,
+      magicAnimationIndex,
+      magicGeometryPattern
+    );
     return Math.round(
       (getMagicTimelineDurationMs(result, strokes) +
         MAGIC_TIMELINE_END_PADDING_MS) /
@@ -2428,7 +2444,11 @@ function App() {
     direction: MagicPlaybackDirection,
     positionMs: number
   ) => {
-    const strokes = makeMagicCircleStrokes(result, animationIndex);
+    const strokes = makeMagicCircleStrokes(
+      result,
+      animationIndex,
+      magicGeometryPattern
+    );
     const durationMs = getMagicTimelineDurationMs(result, strokes);
 
     magicTimelineDurationMsRef.current = durationMs;
@@ -2625,6 +2645,32 @@ function App() {
   };
   const handleMagicPlaybackModeChange = (value: MagicPlaybackMode) => {
     setMagicPlaybackMode(value);
+  };
+  const restartMagicDrawing = () => {
+    if (!selectedResult) return;
+
+    magicTimelinePositionMsRef.current = 0;
+    setMagicDirectionState("forward");
+    setMagicPlaybackState("playing");
+    setMagicReplayKey((key) => key + 1);
+  };
+  const handlePatternModeChange = (value: string) => {
+    const nextMode = Number(value);
+
+    if (isStarMode(nextMode)) {
+      setStarMode(nextMode);
+      setMagicGeometryPattern("combined");
+      setAngleToleranceDeg((current) =>
+        Math.min(current, maxAngleToleranceForMode(nextMode))
+      );
+      restartMagicDrawing();
+      return;
+    }
+
+    if (!isMagicGeometrySelectPattern(value)) return;
+
+    setMagicGeometryPattern(value);
+    restartMagicDrawing();
   };
   const stepMagicPlaybackMode = (step: number) => {
     handleMagicPlaybackModeChange(
@@ -2851,7 +2897,12 @@ function App() {
   }, [isMobileLayout]);
 
   const fitMapToResult = (result: StarResult) => {
-    mapRef.current?.fitBounds(makeStarBounds(result).pad(0.08), {
+    const bounds =
+      magicGeometryPattern === "combined"
+        ? makeStarBounds(result)
+        : makeRadiusBounds(result.center, result.radiusMeanMeters * 1.18);
+
+    mapRef.current?.fitBounds(bounds.pad(0.08), {
       animate: true,
       duration: 0.8,
       maxZoom: 13,
@@ -3004,6 +3055,7 @@ function App() {
   }, [
     magicAnimationIndex,
     magicDirection,
+    magicGeometryPattern,
     magicPlayback,
     magicPlaybackMode,
     magicReplayKey,
@@ -3153,7 +3205,9 @@ function App() {
     const group = sectorLayerRef.current;
     if (!group) return;
     group.clearLayers();
-    if (!showSectors || !selectedResult) return;
+    if (!showSectors || !selectedResult || magicGeometryPattern !== "combined") {
+      return;
+    }
 
     const slotWidth = 360 / selectedResult.mode;
     const sectorHalfWidth = Math.min(slotWidth / 2, effectiveAngleToleranceDeg);
@@ -3180,6 +3234,7 @@ function App() {
   }, [
     effectiveAngleToleranceDeg,
     innerRadiusMeters,
+    magicGeometryPattern,
     outerRadiusMeters,
     selectedResult,
     showSectors
@@ -3194,7 +3249,8 @@ function App() {
     const magicElement = getMagicElement(magicAnimationIndex);
     const magicStrokes = makeMagicCircleStrokes(
       selectedResult,
-      magicAnimationIndex
+      magicAnimationIndex,
+      magicGeometryPattern
     );
     const timelineDurationMs = getMagicTimelineDurationMs(
       selectedResult,
@@ -3256,42 +3312,45 @@ function App() {
       );
     });
 
-    selectedResult.points.forEach((poi, index) => {
-      const marker = L.circleMarker([poi.lat, poi.lng], {
-        radius: 14,
-        color: magicElement.accent,
-        weight: 1,
-        opacity: 0.38,
-        fillColor: magicElement.pale,
-        fillOpacity: 0.2,
-        className: `star-point star-point--appear magic-element--${magicElement.id}`
-      })
-        .bindTooltip(`${index + 1}. ${poi.name}`, {
-          direction: "bottom",
-          offset: [0, 22],
-          permanent: true,
-          className: "star-label star-label--below"
+    if (magicGeometryPattern === "combined") {
+      selectedResult.points.forEach((poi, index) => {
+        const marker = L.circleMarker([poi.lat, poi.lng], {
+          radius: 14,
+          color: magicElement.accent,
+          weight: 1,
+          opacity: 0.38,
+          fillColor: magicElement.pale,
+          fillOpacity: 0.2,
+          className: `star-point star-point--appear magic-element--${magicElement.id}`
         })
-        .on("click", () => setSelectedPoi(poi))
-        .addTo(group);
-      const markerElement = marker.getElement() as SVGElement | null;
-      markerElement?.classList.add("magic-drawable");
-      if (markerElement) {
-        applyMagicMarkerTiming(
-          markerElement,
-          MAGIC_POINT_DELAY_MS + index * MAGIC_POINT_STEP_MS,
-          MAGIC_POINT_DURATION_MS,
-          magicSpeed,
-          magicPlaybackRef.current,
-          magicDirectionRef.current,
-          timelineDurationMs,
-          timelinePositionMs
-        );
-      }
-    });
+          .bindTooltip(`${index + 1}. ${poi.name}`, {
+            direction: "bottom",
+            offset: [0, 22],
+            permanent: true,
+            className: "star-label star-label--below"
+          })
+          .on("click", () => setSelectedPoi(poi))
+          .addTo(group);
+        const markerElement = marker.getElement() as SVGElement | null;
+        markerElement?.classList.add("magic-drawable");
+        if (markerElement) {
+          applyMagicMarkerTiming(
+            markerElement,
+            MAGIC_POINT_DELAY_MS + index * MAGIC_POINT_STEP_MS,
+            MAGIC_POINT_DURATION_MS,
+            magicSpeed,
+            magicPlaybackRef.current,
+            magicDirectionRef.current,
+            timelineDurationMs,
+            timelinePositionMs
+          );
+        }
+      });
+    }
   }, [
     magicAnimationIndex,
     magicDirection,
+    magicGeometryPattern,
     magicReplayKey,
     magicSpeed,
     selectedResult
@@ -3300,7 +3359,7 @@ function App() {
   useEffect(() => {
     if (!selectedResult) return;
     fitMapToResult(selectedResult);
-  }, [selectedResult?.id]);
+  }, [magicGeometryPattern, selectedResult?.id]);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -4308,18 +4367,19 @@ function App() {
           <label className="select-wrap select-wrap--compact pattern-mode-select">
             <select
               aria-label="圖案模式"
-              value={starMode}
+              value={patternModeSelectValue}
               disabled={isSearchSettingsLocked}
               onChange={(event: ChangeEvent<HTMLSelectElement>) => {
-                const nextMode = parseStarModeSelectValue(event.target.value);
-                setStarMode(nextMode);
-                setAngleToleranceDeg((current) =>
-                  Math.min(current, maxAngleToleranceForMode(nextMode))
-                );
+                handlePatternModeChange(event.target.value);
               }}
             >
               {STAR_PATTERN_OPTIONS.map(({ mode, label }) => (
-                <option value={mode} key={mode}>
+                <option value={String(mode)} key={mode}>
+                  {label}
+                </option>
+              ))}
+              {MAGIC_GEOMETRY_PATTERN_OPTIONS.map(({ id, label }) => (
+                <option value={id} key={id}>
                   {label}
                 </option>
               ))}

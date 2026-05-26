@@ -142,6 +142,54 @@ describe("magic circle animations", () => {
     });
   });
 
+  it("can draw rose curve and Sierpinski variants separately", () => {
+    const result = makeResult(5);
+    const roseStrokes = makeMagicCircleStrokes(result, 14, "rose");
+    const sierpinskiStrokes = makeMagicCircleStrokes(
+      result,
+      14,
+      "sierpinski"
+    );
+
+    expect(roseStrokes.some((stroke) => stroke.id === "rose-curve")).toBe(true);
+    expect(
+      roseStrokes.some((stroke) =>
+        stroke.id.startsWith("sierpinski-triangle-")
+      )
+    ).toBe(false);
+    expect(
+      sierpinskiStrokes.some((stroke) => stroke.id === "rose-curve")
+    ).toBe(false);
+    expect(
+      sierpinskiStrokes.filter((stroke) =>
+        stroke.id.startsWith("sierpinski-triangle-")
+      )
+    ).toHaveLength(27);
+
+    for (const strokes of [roseStrokes, sierpinskiStrokes]) {
+      expect(strokes.some((stroke) => stroke.id === "mode-frame-5")).toBe(
+        false
+      );
+      expect(strokes.some((stroke) => stroke.id === "outer-polygon")).toBe(
+        false
+      );
+      expect(
+        strokes.some((stroke) => stroke.className.includes("star-line"))
+      ).toBe(false);
+      expect(
+        strokes.some(
+          (stroke) => stroke.kind === "symbol" && stroke.role === "endpoint"
+        )
+      ).toBe(false);
+      expect(strokes.some((stroke) => stroke.id === "center-symbol")).toBe(
+        true
+      );
+      expect(strokes.filter((stroke) => stroke.id.startsWith("rune-"))).toHaveLength(
+        MAGIC_ANIMATION_COUNT
+      );
+    }
+  });
+
   it("applies the selected element class and palette to every variant", () => {
     for (const [index, element] of MAGIC_ELEMENTS.entries()) {
       const strokes = makeMagicCircleStrokes(makeResult(5), index);

@@ -4,6 +4,8 @@ import { starLineSequences } from "./solver";
 
 const FULL_CIRCLE_DEGREES = 360;
 const MIN_MAGIC_RADIUS_METERS = 120;
+const ROSE_CURVE_PETAL_FACTOR = 7;
+const SIERPINSKI_TRIANGLE_DEPTH = 3;
 
 type MagicLineStyle =
   | "sharp"
@@ -447,6 +449,7 @@ export const MAGIC_SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4] as const;
 
 export type MagicSpeed = (typeof MAGIC_SPEED_OPTIONS)[number];
 export type MagicElementId = (typeof MAGIC_ELEMENTS)[number]["id"];
+export type MagicGeometryPattern = "combined" | "rose" | "sierpinski";
 
 interface MagicStrokeBase {
   id: string;
@@ -781,7 +784,8 @@ const makeRuneStroke = ({
 
 export const makeMagicCircleStrokes = (
   result: StarResult,
-  animationIndex: number
+  animationIndex: number,
+  geometryPattern: MagicGeometryPattern = "combined"
 ): MagicCircleStroke[] => {
   const normalizedIndex = normalizeMagicAnimationIndex(animationIndex);
   const element = getMagicElement(normalizedIndex);
@@ -1278,40 +1282,132 @@ export const makeMagicCircleStrokes = (
     }
   };
 
-  addBaseGeometry();
+  if (geometryPattern === "combined") {
+    addBaseGeometry();
+  }
 
   pushCircle("outer-ring", element.ringScale, element.primary, 1.8, 0.72, 930);
   pushCircle("middle-ring", 0.77, element.accent, 1.2, 0.48, 760);
   pushCircle("inner-ring", 0.48, element.pale, 1.1, 0.5, 660);
 
-  pushPolyline(
-    "rose-curve",
-    makeRoseCurvePoints(result.center, radiusMeters * 0.44, mode, phaseDeg),
-    "magic-stroke magic-rose-curve magic-stroke--draw",
-    element.pale,
-    1.15,
-    0.64,
-    1120,
-    0.72
-  );
-
-  makeSierpinskiTriangleSegments(
-    result.center,
-    radiusMeters * 0.82,
-    phaseDeg,
-    3
-  ).forEach((points, index) => {
+  if (geometryPattern === "combined" || geometryPattern === "rose") {
     pushPolyline(
-      `sierpinski-triangle-${index}`,
-      points,
-      "magic-stroke magic-sierpinski magic-stroke--draw",
-      index % 3 === 0 ? element.accent : element.primary,
-      0.82,
-      0.46,
-      520,
-      0.08
+      "rose-curve",
+      makeRoseCurvePoints(
+        result.center,
+        radiusMeters * (geometryPattern === "rose" ? 0.56 : 0.44),
+        geometryPattern === "rose" ? ROSE_CURVE_PETAL_FACTOR : mode,
+        phaseDeg
+      ),
+      "magic-stroke magic-rose-curve magic-stroke--draw",
+      element.pale,
+      geometryPattern === "rose" ? 1.55 : 1.15,
+      geometryPattern === "rose" ? 0.78 : 0.64,
+      1120,
+      0.72
     );
-  });
+  }
+
+  if (geometryPattern === "combined" || geometryPattern === "sierpinski") {
+    makeSierpinskiTriangleSegments(
+      result.center,
+      radiusMeters * 0.82,
+      phaseDeg,
+      SIERPINSKI_TRIANGLE_DEPTH
+    ).forEach((points, index) => {
+      pushPolyline(
+        `sierpinski-triangle-${index}`,
+        points,
+        "magic-stroke magic-sierpinski magic-stroke--draw",
+        index % 3 === 0 ? element.accent : element.primary,
+        geometryPattern === "sierpinski" ? 1.08 : 0.82,
+        geometryPattern === "sierpinski" ? 0.66 : 0.46,
+        520,
+        0.08
+      );
+    });
+  }
+
+  if (geometryPattern !== "combined") {
+    addRadialTicks(
+      `${geometryPattern}-independent-axis`,
+      geometryPattern === "rose" ? 14 : 12,
+      0.18,
+      1.02,
+      element.accent,
+      0.95,
+      0.48,
+      geometryPattern === "rose" ? 0 : 30
+    );
+
+    for (let index = 0; index < MAGIC_ANIMATION_COUNT; index += 1) {
+      const bearing =
+        phaseDeg + (FULL_CIRCLE_DEGREES * index) / MAGIC_ANIMATION_COUNT;
+      pushPolyline(
+        `rune-${index}`,
+        makeRuneStroke({
+          center: result.center,
+          radiusMeters,
+          bearing,
+          shape: element.runeShape
+        }),
+        "magic-stroke magic-rune magic-stroke--draw",
+        index % 3 === 0 ? element.pale : element.accent,
+        element.runeShape === "orb" ? 1 : 1.25,
+        0.74,
+        430,
+        0.34
+      );
+    }
+
+    pushCircle("core-ring", 0.16, element.accent, 1.2, 0.64, 560);
+    pushPolyline(
+      "core-axis",
+      [
+        destinationPoint(result.center, radiusMeters * 0.24, phaseDeg + 90),
+        destinationPoint(result.center, radiusMeters * 0.24, phaseDeg + 270)
+      ],
+      "magic-stroke magic-stroke--draw",
+      element.primary,
+      1.15,
+      0.58,
+      480
+    );
+
+    pushSymbol(
+      "center-symbol",
+      result.center,
+      "center",
+      element.centerSymbol,
+      46,
+      element.primary,
+      1,
+      640,
+      phaseDeg,
+      0.52
+    );
+
+    const ambientCount = element.ambientEffect === "ghosts" ? 9 : 8;
+    for (let index = 0; index < ambientCount; index += 1) {
+      const bearing =
+        phaseDeg + (FULL_CIRCLE_DEGREES * index) / ambientCount;
+      const radiusScale = 0.28 + (index % 4) * 0.16;
+      pushSymbol(
+        `ambient-symbol-${index}`,
+        destinationPoint(result.center, radiusMeters * radiusScale, bearing),
+        "ambient",
+        index % 2 === 0 ? element.endpointSymbol : element.centerSymbol,
+        19 + (index % 3) * 2,
+        index % 2 === 0 ? element.accent : element.pale,
+        0.82,
+        560,
+        bearing,
+        0.16
+      );
+    }
+
+    return strokes;
+  }
 
   starLineSequences(mode).forEach((sequencePoints, index) => {
     pushPolyline(
