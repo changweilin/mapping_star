@@ -1,7 +1,7 @@
-import type { StarMode, StarResult } from "../types";
+import type { StarResult } from "../types";
+import { starModeLabel } from "./starPatterns";
 
-export const starModeLabel = (mode: StarMode) =>
-  mode === 5 ? "五芒星" : "六芒星";
+export { starModeLabel };
 
 export const formatStarNameDistance = (meters: number) => {
   const kilometers = Math.max(0, meters / 1000);
@@ -9,8 +9,10 @@ export const formatStarNameDistance = (meters: number) => {
   return `${kilometers.toFixed(precision).replace(/\.0$/, "")}km`;
 };
 
-const trailingStarNamePattern =
-  /\s+(?:(?:五芒星|六芒星)\s+半徑\d+(?:\.\d+)?km\s+角度\d+(?:\.\d+)?°\s+誤差\d+(?:\.\d+)?°|\d+(?:\.\d+)?km\s+(?:五芒星|六芒星))$/;
+const starModeNamePattern = "(?:五芒星|六芒星|十字星|八卦圖)";
+const trailingStarNamePattern = new RegExp(
+  `\\s+(?:(?:${starModeNamePattern})\\s+半徑\\d+(?:\\.\\d+)?km\\s+角度\\d+(?:\\.\\d+)?°\\s+誤差\\d+(?:\\.\\d+)?°|\\d+(?:\\.\\d+)?km\\s+${starModeNamePattern})$`
+);
 const coordinateNamePattern =
   /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/;
 

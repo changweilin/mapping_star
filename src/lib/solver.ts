@@ -11,6 +11,11 @@ import {
   haversineDistanceMeters,
   normalizeDegrees
 } from "./geo";
+import {
+  defaultCandidatesPerSlotForMode,
+  defaultRotationStepForMode,
+  starLineSequencesForMode
+} from "./starPatterns";
 
 export const DEFAULT_SOLVER_SEARCH_STRATEGY: SearchStrategy = "honeycomb";
 export const DEFAULT_HEX_CELL_RADIUS_METERS = 4000;
@@ -92,13 +97,7 @@ export interface SolveProgress {
   bestResult: StarResult | null;
 }
 
-export const starLineSequences = (mode: StarMode) =>
-  mode === 5
-    ? [[0, 2, 4, 1, 3, 0]]
-    : [
-        [0, 2, 4, 0],
-        [1, 3, 5, 1]
-      ];
+export const starLineSequences = starLineSequencesForMode;
 
 const getTargets = (mode: StarMode, rotationDeg: number) =>
   Array.from({ length: mode }, (_, index) =>
@@ -644,7 +643,7 @@ export function* solveStarFromPoisSteps(
   const halfSlot = slotWidth / 2;
   const step = Math.max(
     1,
-    Math.min(slotWidth, rotationStepDeg ?? (mode === 5 ? 6 : 5))
+    Math.min(slotWidth, rotationStepDeg ?? defaultRotationStepForMode(mode))
   );
   const toleranceDeg = Math.max(
     1,
@@ -652,7 +651,10 @@ export function* solveStarFromPoisSteps(
   );
   const slotCandidateLimit = Math.max(
     1,
-    Math.min(16, Math.floor(candidatesPerSlot ?? (mode === 5 ? 5 : 4)))
+    Math.min(
+      16,
+      Math.floor(candidatesPerSlot ?? defaultCandidatesPerSlotForMode(mode))
+    )
   );
   const resultPool = Math.max(maxResults * 8, 24);
   const honeycombContext =

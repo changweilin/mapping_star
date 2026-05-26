@@ -1,4 +1,5 @@
 import type { StarResult } from "../types";
+import { isStarMode } from "./starPatterns";
 
 export const LAST_STAR_STORAGE_KEY = "mapping-star:last-star";
 
@@ -7,7 +8,7 @@ const isStoredStar = (value: unknown): value is StarResult => {
   const candidate = value as Partial<StarResult>;
   return (
     typeof candidate.id === "string" &&
-    (candidate.mode === 5 || candidate.mode === 6) &&
+    isStarMode(candidate.mode) &&
     typeof candidate.center?.lat === "number" &&
     typeof candidate.center.lng === "number" &&
     Array.isArray(candidate.points) &&

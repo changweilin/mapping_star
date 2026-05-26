@@ -1,5 +1,6 @@
 import type { FavoriteItem, Poi, StarResult } from "../types";
 import { starLineSequences } from "./solver";
+import { starModeLabel } from "./starPatterns";
 
 const escapeXml = (value: string) =>
   value
@@ -19,7 +20,7 @@ const uniquePois = (pois: Poi[], stars: StarResult[]) => {
 };
 
 const starName = (star: StarResult, index: number) =>
-  star.name ?? `${star.mode === 5 ? "五芒星" : "六芒星"} ${index + 1}`;
+  star.name ?? `${starModeLabel(star.mode)} ${index + 1}`;
 
 export const exportGpx = (
   name: string,
@@ -36,8 +37,9 @@ export const exportGpx = (
     .join("\n");
 
   const routes = stars
-    .flatMap((star, starIndex) =>
-      starLineSequences(star.mode).map((sequence, sequenceIndex) => {
+    .flatMap((star, starIndex) => {
+      const sequences = starLineSequences(star.mode);
+      return sequences.map((sequence, sequenceIndex) => {
         const points = sequence
           .map((pointIndex) => star.points[pointIndex])
           .map(
@@ -49,12 +51,12 @@ export const exportGpx = (
 
         return `  <rte>
     <name>${escapeXml(starName(star, starIndex))}${
-          star.mode === 6 ? `-${sequenceIndex + 1}` : ""
+          sequences.length > 1 ? `-${sequenceIndex + 1}` : ""
         }</name>
 ${points}
   </rte>`;
-      })
-    )
+      });
+    })
     .join("\n");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -84,8 +86,9 @@ export const exportKml = (
     .join("\n");
 
   const linePlacemarks = stars
-    .flatMap((star, starIndex) =>
-      starLineSequences(star.mode).map((sequence, sequenceIndex) => {
+    .flatMap((star, starIndex) => {
+      const sequences = starLineSequences(star.mode);
+      return sequences.map((sequence, sequenceIndex) => {
         const coordinates = sequence
           .map((pointIndex) => star.points[pointIndex])
           .map((poi) => `${poi.lng},${poi.lat},0`)
@@ -93,15 +96,15 @@ export const exportKml = (
 
         return `    <Placemark>
       <name>${escapeXml(starName(star, starIndex))}${
-          star.mode === 6 ? `-${sequenceIndex + 1}` : ""
+          sequences.length > 1 ? `-${sequenceIndex + 1}` : ""
         }</name>
       <Style>
         <LineStyle><color>ff2d42d6</color><width>3</width></LineStyle>
       </Style>
       <LineString><tessellate>1</tessellate><coordinates>${coordinates}</coordinates></LineString>
     </Placemark>`;
-      })
-    )
+      });
+    })
     .join("\n");
 
   return `<?xml version="1.0" encoding="UTF-8"?>

@@ -43,7 +43,7 @@ describe("settings helpers", () => {
     const settings = normalizeSettings({
       innerRadiusKm: 40,
       outerRadiusKm: 100,
-      starMode: 6,
+      starMode: 8,
       angleToleranceDeg: 36,
       candidatesPerSlot: 99,
       rotationStepDeg: 0,
@@ -60,8 +60,8 @@ describe("settings helpers", () => {
 
     expect(settings.innerRadiusKm).toBe(29);
     expect(settings.outerRadiusKm).toBe(30);
-    expect(settings.starMode).toBe(6);
-    expect(settings.angleToleranceDeg).toBe(30);
+    expect(settings.starMode).toBe(8);
+    expect(settings.angleToleranceDeg).toBe(22);
     expect(settings.candidatesPerSlot).toBe(12);
     expect(settings.rotationStepDeg).toBe(1);
     expect(settings.searchStrategy).toBe("angular");

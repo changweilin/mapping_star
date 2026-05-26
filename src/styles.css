@@ -303,6 +303,15 @@ a {
   min-height: 32px;
 }
 
+.magic-draw-actions .pattern-mode-select {
+  justify-content: center;
+}
+
+.magic-draw-actions .pattern-mode-select select {
+  min-height: 38px;
+  font-weight: 800;
+}
+
 .eyebrow {
   margin: 0 0 5px;
   color: var(--green);

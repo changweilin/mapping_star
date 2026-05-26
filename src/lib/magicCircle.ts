@@ -536,6 +536,24 @@ const makeRadialLine = (
   destinationPoint(center, outerRadiusMeters, bearingDeg)
 ];
 
+const makeTangentialSegment = (
+  center: LatLng,
+  radiusMeters: number,
+  bearingDeg: number,
+  startOffsetMeters: number,
+  endOffsetMeters: number
+) => {
+  const base = destinationPoint(center, radiusMeters, bearingDeg);
+  const pointAtOffset = (offsetMeters: number) =>
+    destinationPoint(
+      base,
+      Math.abs(offsetMeters),
+      bearingDeg + (offsetMeters < 0 ? -90 : 90)
+    );
+
+  return [pointAtOffset(startOffsetMeters), pointAtOffset(endOffsetMeters)];
+};
+
 const makeZigZagLine = (
   center: LatLng,
   innerRadiusMeters: number,
@@ -1248,7 +1266,142 @@ export const makeMagicCircleStrokes = (
     760
   );
 
-  const chordStep = mode === 5 ? 2 : 2 + (normalizedIndex % 3);
+  if (mode === 4) {
+    addRadialTicks("cross-star-axis", 4, 0.18, 1.08, element.accent, 1.35, 0.66, 0);
+    for (let index = 0; index < 4; index += 1) {
+      const bearing = phaseDeg + index * modeSlotDeg + modeSlotDeg / 2;
+      pushPolyline(
+        `cross-star-flare-${index}`,
+        makeTangentialSegment(
+          result.center,
+          radiusMeters * 0.82,
+          bearing,
+          -radiusMeters * 0.075,
+          radiusMeters * 0.075
+        ),
+        "magic-stroke magic-pattern-mark magic-stroke--draw",
+        index % 2 === 0 ? element.pale : element.primary,
+        1.1,
+        0.58,
+        460,
+        0.28
+      );
+    }
+  }
+
+  if (mode === 8) {
+    pushCircle("bagua-taiji-ring", 0.24, element.pale, 1.15, 0.58, 520);
+    pushPolyline(
+      "bagua-taiji-curve",
+      makeCirclePoints(
+        destinationPoint(result.center, radiusMeters * 0.06, phaseDeg + 90),
+        radiusMeters * 0.12,
+        phaseDeg + 90,
+        180,
+        28
+      ),
+      "magic-stroke magic-pattern-mark magic-stroke--draw",
+      element.primary,
+      1.15,
+      0.6,
+      520,
+      0.34
+    );
+    pushCircleAt(
+      "bagua-taiji-dot-a",
+      destinationPoint(result.center, radiusMeters * 0.08, phaseDeg),
+      radiusMeters * 0.026,
+      element.accent,
+      0.9,
+      0.62,
+      360,
+      "magic-circle magic-pattern-mark magic-circle--draw",
+      0.18
+    );
+    pushCircleAt(
+      "bagua-taiji-dot-b",
+      destinationPoint(result.center, radiusMeters * 0.08, phaseDeg + 180),
+      radiusMeters * 0.026,
+      element.pale,
+      0.9,
+      0.62,
+      360,
+      "magic-circle magic-pattern-mark magic-circle--draw",
+      0.18
+    );
+
+    for (let trigramIndex = 0; trigramIndex < 8; trigramIndex += 1) {
+      const bearing = phaseDeg + trigramIndex * modeSlotDeg;
+      for (let row = 0; row < 3; row += 1) {
+        const trigramRadius = radiusMeters * (1.06 - row * 0.045);
+        const halfLength = radiusMeters * 0.055;
+        const gap = radiusMeters * 0.017;
+        const isBroken = ((trigramIndex >> row) & 1) === 1;
+        const idPrefix = `bagua-trigram-${trigramIndex}-${row}`;
+
+        if (isBroken) {
+          pushPolyline(
+            `${idPrefix}-a`,
+            makeTangentialSegment(
+              result.center,
+              trigramRadius,
+              bearing,
+              -halfLength,
+              -gap
+            ),
+            "magic-stroke magic-pattern-mark magic-stroke--draw",
+            row % 2 === 0 ? element.accent : element.pale,
+            1.05,
+            0.66,
+            360,
+            0.12
+          );
+          pushPolyline(
+            `${idPrefix}-b`,
+            makeTangentialSegment(
+              result.center,
+              trigramRadius,
+              bearing,
+              gap,
+              halfLength
+            ),
+            "magic-stroke magic-pattern-mark magic-stroke--draw",
+            row % 2 === 0 ? element.accent : element.pale,
+            1.05,
+            0.66,
+            360,
+            0.12
+          );
+        } else {
+          pushPolyline(
+            idPrefix,
+            makeTangentialSegment(
+              result.center,
+              trigramRadius,
+              bearing,
+              -halfLength,
+              halfLength
+            ),
+            "magic-stroke magic-pattern-mark magic-stroke--draw",
+            row % 2 === 0 ? element.accent : element.pale,
+            1.05,
+            0.66,
+            360,
+            0.18
+          );
+        }
+      }
+    }
+  }
+
+  const chordStep =
+    mode === 5
+      ? 2
+      : mode === 4
+        ? 1
+        : mode === 8
+          ? 3 + (normalizedIndex % 2) * 2
+          : 2 + (normalizedIndex % 3);
   const chordPoints = Array.from({ length: mode + 1 }, (_, index) =>
     destinationPoint(
       result.center,

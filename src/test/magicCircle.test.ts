@@ -78,9 +78,10 @@ const makeResultWithBearings = (
 const pointPosition = (point: Poi) => ({ lat: point.lat, lng: point.lng });
 
 describe("magic circle animations", () => {
-  it("offers 16 element-named choices for five- and six-point stars", () => {
-    expect(getMagicAnimationOptions(5)).toHaveLength(MAGIC_ANIMATION_COUNT);
-    expect(getMagicAnimationOptions(6)).toHaveLength(MAGIC_ANIMATION_COUNT);
+  it("offers 16 element-named choices for every pattern", () => {
+    for (const mode of [4, 5, 6, 8] as const) {
+      expect(getMagicAnimationOptions(mode)).toHaveLength(MAGIC_ANIMATION_COUNT);
+    }
     expect(MAGIC_ANIMATION_COUNT).toBe(16);
     expect(getMagicAnimationOptions(5).map((option) => option.label)).toEqual(
       MAGIC_ELEMENTS.map((element) => `${element.name}魔法陣`)
@@ -92,7 +93,7 @@ describe("magic circle animations", () => {
   });
 
   it("adds 16 sequential rune strokes around each magic circle", () => {
-    for (const mode of [5, 6] as const) {
+    for (const mode of [4, 5, 6, 8] as const) {
       const strokes = makeMagicCircleStrokes(makeResult(mode), 3);
       const runeStrokes = strokes.filter((stroke) =>
         stroke.id.startsWith("rune-")
@@ -239,25 +240,36 @@ describe("magic circle animations", () => {
     }
   });
 
-  it("uses mode-specific foundation frames for five- and six-point stars", () => {
+  it("uses mode-specific foundation frames for every pattern", () => {
     for (const [index, element] of MAGIC_ELEMENTS.entries()) {
-      const fivePointStrokes = makeMagicCircleStrokes(makeResult(5), index);
-      const sixPointStrokes = makeMagicCircleStrokes(makeResult(6), index);
+      for (const mode of [4, 5, 6, 8] as const) {
+        const strokes = makeMagicCircleStrokes(makeResult(mode), index);
 
-      expect(
-        fivePointStrokes.some(
-          (stroke) =>
-            stroke.id === "mode-frame-5" &&
-            stroke.className.includes(`magic-geometry--${element.baseGeometry}`)
-        )
-      ).toBe(true);
-      expect(
-        sixPointStrokes.some(
-          (stroke) =>
-            stroke.id === "mode-frame-6" &&
-            stroke.className.includes(`magic-geometry--${element.baseGeometry}`)
-        )
-      ).toBe(true);
+        expect(
+          strokes.some(
+            (stroke) =>
+              stroke.id === `mode-frame-${mode}` &&
+              stroke.className.includes(
+                `magic-geometry--${element.baseGeometry}`
+              )
+          )
+        ).toBe(true);
+      }
     }
+  });
+
+  it("adds pattern-specific strokes for cross star and bagua drawings", () => {
+    const crossStrokes = makeMagicCircleStrokes(makeResult(4), 0);
+    const baguaStrokes = makeMagicCircleStrokes(makeResult(8), 0);
+
+    expect(crossStrokes.some((stroke) => stroke.id === "cross-star-axis-0")).toBe(
+      true
+    );
+    expect(baguaStrokes.some((stroke) => stroke.id === "bagua-taiji-ring")).toBe(
+      true
+    );
+    expect(
+      baguaStrokes.some((stroke) => stroke.id.startsWith("bagua-trigram-"))
+    ).toBe(true);
   });
 });

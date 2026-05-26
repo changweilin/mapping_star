@@ -68,6 +68,12 @@ import {
   type MapLayerId
 } from "./lib/settings";
 import {
+  isStarMode,
+  maxAngleToleranceForMode,
+  STAR_PATTERN_OPTIONS,
+  starModeLabel
+} from "./lib/starPatterns";
+import {
   solveStarFromPois,
   solveStarFromPoisSteps,
   type SolveProgress
@@ -585,8 +591,12 @@ const formatClockTime = (isoValue: string | null | undefined) => {
   }).format(new Date(isoValue));
 };
 
-const getStarModeLabel = (mode: StarMode) =>
-  mode === 5 ? "五芒星" : "六芒星";
+const getStarModeLabel = starModeLabel;
+
+const parseStarModeSelectValue = (value: string): StarMode => {
+  const mode = Number(value);
+  return isStarMode(mode) ? mode : DEFAULT_APP_SETTINGS.starMode;
+};
 
 const getSearchStrategyLabel = ({
   searchStrategy,
@@ -1725,6 +1735,7 @@ function App() {
   const mobileSplitterSnapAtRef = useRef(0);
   const mobileSettingsSwipeRef = useRef<MobileSettingsSwipeState | null>(null);
   const searchAbortControllerRef = useRef<AbortController | null>(null);
+  const isMagicCenterLockedRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [isSearchDrawing, setIsSearchDrawing] = useState(false);
   const [calculationProgress, setCalculationProgress] =
@@ -1748,7 +1759,7 @@ function App() {
   );
   const [status, setStatus] = useState(
     initialLastStar
-      ? `已載入上次暫存的${initialLastStar.mode === 5 ? "五芒星" : "六芒星"}魔法陣。`
+      ? `已載入上次暫存的${getStarModeLabel(initialLastStar.mode)}魔法陣。`
       : "點擊地圖、搜尋地標或輸入座標來放置中心。"
   );
   const [error, setError] = useState("");
@@ -1796,6 +1807,8 @@ function App() {
   const searchDrawButtonLabel = isSearchDrawing ? "取消搜索" : "搜索繪製";
   const isSearchSettingsLocked = isSearchDrawing;
   const areFavoritesLocked = isSearchDrawing;
+  const isMagicCenterLocked = isSearchDrawing;
+  isMagicCenterLockedRef.current = isMagicCenterLocked;
   const isSidebarSectionExpanded = (tab: MobileSettingsTab) =>
     isMobileLayout || expandedDesktopSections[tab];
   const toggleDesktopSection = (tab: MobileSettingsTab) => {
@@ -1859,7 +1872,7 @@ function App() {
       ),
     [innerRadiusMeters, outerRadiusMeters, pois]
   );
-  const maxAngleToleranceDeg = starMode === 5 ? 36 : 30;
+  const maxAngleToleranceDeg = maxAngleToleranceForMode(starMode);
   const effectiveAngleToleranceDeg = Math.min(
     angleToleranceDeg,
     maxAngleToleranceDeg
@@ -1930,11 +1943,26 @@ function App() {
       Math.max(map.getZoom(), 15)
     );
   };
-  const setCenterFromPlaceCandidate = (candidate: PlaceSearchResult) => {
+  const blockMagicCenterMoveIfLocked = () => {
+    if (!isMagicCenterLockedRef.current) return false;
+
+    setStatus("魔法陣繪製中，中心已鎖定；仍可移動、縮放或切換地圖。");
+    setError("");
+    return true;
+  };
+  const setCenterFromPlaceCandidate = (
+    candidate: PlaceSearchResult,
+    options: { allowWhileLocked?: boolean } = {}
+  ) => {
+    if (!options.allowWhileLocked && blockMagicCenterMoveIfLocked()) {
+      return false;
+    }
+
     setCenter(candidate.center);
     setCenterName(candidate.label);
     setSelectedPlaceCandidateId(candidate.id);
     focusPlaceCandidate(candidate);
+    return true;
   };
   const handleSearchTextChange = (value: string) => {
     setSearchText(value);
@@ -1953,7 +1981,8 @@ function App() {
     setError("");
   };
   const handleSetPlaceCandidate = (candidate: PlaceSearchResult) => {
-    setCenterFromPlaceCandidate(candidate);
+    if (!setCenterFromPlaceCandidate(candidate)) return;
+
     setStatus(`中心已設置為 ${candidate.label}。`);
     setError("");
   };
@@ -2850,6 +2879,8 @@ function App() {
     poiLayerRef.current = L.layerGroup().addTo(map);
     starLayerRef.current = L.layerGroup().addTo(map);
     map.on("click", (event: L.LeafletMouseEvent) => {
+      if (blockMagicCenterMoveIfLocked()) return;
+
       const nextCenter = {
         lat: event.latlng.lat,
         lng: event.latlng.lng
@@ -3332,7 +3363,7 @@ function App() {
     addCalculationRecord(makeCalculationRecordFromSummary(summary));
     if (nextResults.length === 0) {
       setStatus(
-        `目前 ${countPoisInCurrentRange(pois)} 個範圍內候選點不足以形成穩定的星形。`
+        `目前 ${countPoisInCurrentRange(pois)} 個範圍內候選點不足以形成穩定的圖案。`
       );
       return;
     }
@@ -3445,7 +3476,7 @@ function App() {
       setPlaceCandidateQuery(searchValue);
       setSelectedPlaceCandidateId(result.id);
     }
-    setCenterFromPlaceCandidate(result);
+    setCenterFromPlaceCandidate(result, { allowWhileLocked: true });
     return { ...result, searched: true };
   };
 
@@ -3468,6 +3499,8 @@ function App() {
   };
 
   const handleLocate = () => {
+    if (blockMagicCenterMoveIfLocked()) return;
+
     if (!navigator.geolocation) {
       setError("這個瀏覽器不支援目前位置功能。");
       return;
@@ -3477,6 +3510,11 @@ function App() {
     setError("");
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        if (blockMagicCenterMoveIfLocked()) {
+          setLoading(false);
+          return;
+        }
+
         const nextCenter = {
           lat: position.coords.latitude,
           lng: position.coords.longitude
@@ -3523,6 +3561,7 @@ function App() {
     const searchController = new AbortController();
     searchAbortControllerRef.current = searchController;
     skipNextAutoSolveForCenter(center);
+    isMagicCenterLockedRef.current = true;
     setIsSearchDrawing(true);
     setLoading(true);
     setError("");
@@ -3874,6 +3913,7 @@ function App() {
       if (searchAbortControllerRef.current === searchController) {
         searchAbortControllerRef.current = null;
       }
+      isMagicCenterLockedRef.current = false;
       setIsSearchDrawing(false);
       setLoading(false);
     }
@@ -3995,7 +4035,7 @@ function App() {
     const nextOuterRadiusKm = Math.max(outerRadiusKm, maxPointDistanceKm);
     const nextAngleToleranceDeg = Math.min(
       angleToleranceDeg,
-      restoredStar.mode === 5 ? 36 : 30
+      maxAngleToleranceForMode(restoredStar.mode)
     );
 
     skipNextAutoSolveRef.current = makeAutoSolveKey({
@@ -4254,7 +4294,7 @@ function App() {
         <section
           className="magic-draw-actions"
           ref={magicDrawActionsRef}
-          aria-label="搜索繪製與星形模式"
+          aria-label="搜索繪製與圖案模式"
         >
           <button
             className="primary-button search-draw-button"
@@ -4265,24 +4305,26 @@ function App() {
             <Play size={17} />
             <span>{searchDrawButtonLabel}</span>
           </button>
-          <div className="mode-row" role="group" aria-label="星形模式">
-            <button
-              className={starMode === 5 ? "selected" : ""}
-              type="button"
-              onClick={() => setStarMode(5)}
+          <label className="select-wrap select-wrap--compact pattern-mode-select">
+            <select
+              aria-label="圖案模式"
+              value={starMode}
               disabled={isSearchSettingsLocked}
+              onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+                const nextMode = parseStarModeSelectValue(event.target.value);
+                setStarMode(nextMode);
+                setAngleToleranceDeg((current) =>
+                  Math.min(current, maxAngleToleranceForMode(nextMode))
+                );
+              }}
             >
-              五芒星
-            </button>
-            <button
-              className={starMode === 6 ? "selected" : ""}
-              type="button"
-              onClick={() => setStarMode(6)}
-              disabled={isSearchSettingsLocked}
-            >
-              六芒星
-            </button>
-          </div>
+              {STAR_PATTERN_OPTIONS.map(({ mode, label }) => (
+                <option value={mode} key={mode}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
         </section>
 
         <nav className="mobile-settings-tabs" aria-label="手機設定頁籤">

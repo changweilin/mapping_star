@@ -1,4 +1,5 @@
 import type { FavoriteItem, Poi, StarResult } from "../types";
+import { starModeLabel } from "./starPatterns";
 
 export const FAVORITES_STORAGE_KEY = "mapping-star:favorites";
 
@@ -27,7 +28,7 @@ export const makePoiFavorite = (poi: Poi): FavoriteItem => ({
 
 export const makeStarFavorite = (
   star: StarResult,
-  name = `${star.mode === 5 ? "五芒星" : "六芒星"} ${new Date().toLocaleString(
+  name = `${starModeLabel(star.mode)} ${new Date().toLocaleString(
     "zh-TW"
   )}`
 ): FavoriteItem => ({

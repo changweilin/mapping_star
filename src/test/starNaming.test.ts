@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { StarResult } from "../types";
+import type { StarMode, StarResult } from "../types";
 import { makeAutomaticStarName } from "../lib/starNaming";
 
 const center = { lat: 25, lng: 121 };
 
 const makeStar = (
-  mode: 5 | 6,
+  mode: StarMode,
   radiusMeanMeters = 2400,
   rotationDeg = 13,
   angleErrorDeg = 1.2
@@ -71,5 +71,21 @@ describe("automatic star naming", () => {
     });
 
     expect(name).toBe("台北101 六芒星 半徑5km 角度0° 誤差0°");
+  });
+
+  it("names the new cross star and bagua patterns", () => {
+    expect(
+      makeAutomaticStarName({
+        centerName: "台北101",
+        star: makeStar(4, 3200, 45, 0.8)
+      })
+    ).toBe("台北101 十字星 半徑3.2km 角度45° 誤差0.8°");
+
+    expect(
+      makeAutomaticStarName({
+        centerName: "台北101 十字星 半徑3.2km 角度45° 誤差0.8°",
+        star: makeStar(8, 4200, 22, 0.5)
+      })
+    ).toBe("台北101 八卦圖 半徑4.2km 角度22° 誤差0.5°");
   });
 });

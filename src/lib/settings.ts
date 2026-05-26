@@ -1,5 +1,6 @@
 import { DEFAULT_CATEGORY_IDS, POI_CATEGORIES } from "../data/categories";
 import type { SearchStrategy, StarMode } from "../types";
+import { isStarMode, maxAngleToleranceForMode } from "./starPatterns";
 
 export const SETTINGS_STORAGE_KEY = "mapping-star:settings";
 
@@ -62,8 +63,10 @@ const clampSteppedNumber = (
   return Number((Math.round(clampedValue / step) * step).toFixed(decimals));
 };
 
-const parseStarMode = (value: unknown): StarMode =>
-  value === 6 ? 6 : DEFAULT_APP_SETTINGS.starMode;
+const parseStarMode = (value: unknown): StarMode => {
+  const numericValue = typeof value === "number" ? value : Number(value);
+  return isStarMode(numericValue) ? numericValue : DEFAULT_APP_SETTINGS.starMode;
+};
 
 const parseSearchStrategy = (value: unknown): SearchStrategy =>
   value === "angular" || value === "honeycomb"
@@ -152,7 +155,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
       ? (value as Partial<AppSettings> & { radiusKm?: unknown })
       : DEFAULT_APP_SETTINGS;
   const starMode = parseStarMode(source.starMode);
-  const maxAngleToleranceDeg = starMode === 5 ? 36 : 30;
+  const maxAngleToleranceDeg = maxAngleToleranceForMode(starMode);
   const outerRadiusKm = clampNumber(
     source.outerRadiusKm ?? source.radiusKm,
     1,

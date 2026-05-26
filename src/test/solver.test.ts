@@ -35,10 +35,21 @@ const makePoi = (
 
 describe("star solver", () => {
   it("uses the expected line sequences", () => {
+    expect(starLineSequences(4)).toEqual([
+      [0, 2],
+      [1, 3]
+    ]);
     expect(starLineSequences(5)).toEqual([[0, 2, 4, 1, 3, 0]]);
     expect(starLineSequences(6)).toEqual([
       [0, 2, 4, 0],
       [1, 3, 5, 1]
+    ]);
+    expect(starLineSequences(8)).toEqual([
+      [0, 1, 2, 3, 4, 5, 6, 7, 0],
+      [0, 4],
+      [1, 5],
+      [2, 6],
+      [3, 7]
     ]);
   });
 
@@ -220,6 +231,41 @@ describe("star solver", () => {
 
     expect(results).toHaveLength(1);
     expect(results[0].points[0].id).toBe(nearCenterPoint.id);
+  });
+
+  it("finds a four-point cross star from cardinal points", () => {
+    const pois = [0, 90, 180, 270].map((bearing, index) =>
+      makePoi(index, bearing)
+    );
+
+    const results = solveStarFromPois(pois, {
+      mode: 4,
+      center,
+      radiusMeters: 15000,
+      rotationStepDeg: 5
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].points).toHaveLength(4);
+    expect(results[0].angleErrorDeg).toBeLessThan(1);
+  });
+
+  it("finds an eight-point bagua pattern from evenly distributed points", () => {
+    const pois = [0, 45, 90, 135, 180, 225, 270, 315].map((bearing, index) =>
+      makePoi(index, bearing)
+    );
+
+    const results = solveStarFromPois(pois, {
+      mode: 8,
+      center,
+      radiusMeters: 15000,
+      rotationStepDeg: 4,
+      candidatesPerSlot: 1
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].points).toHaveLength(8);
+    expect(results[0].angleErrorDeg).toBeLessThan(1);
   });
 
   it("excludes points inside the inner radius", () => {
