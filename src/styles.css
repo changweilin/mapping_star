@@ -2075,6 +2075,22 @@ a {
   filter: drop-shadow(0 0 5px rgba(223, 138, 31, 0.32));
 }
 
+.magic-rose-curve {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter:
+    drop-shadow(0 0 4px currentColor)
+    drop-shadow(0 0 10px rgba(255, 255, 255, 0.28));
+}
+
+.magic-sierpinski {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter:
+    drop-shadow(0 0 3px currentColor)
+    drop-shadow(0 0 8px rgba(99, 207, 255, 0.24));
+}
+
 .magic-drawable * {
   animation-play-state: inherit;
 }

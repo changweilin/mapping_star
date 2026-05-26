@@ -605,6 +605,64 @@ const makeSpiralPoints = (
     );
   });
 
+const makeRoseCurvePoints = (
+  center: LatLng,
+  radiusMeters: number,
+  petalFactor: number,
+  rotationDeg: number,
+  steps = 192
+) =>
+  Array.from({ length: steps + 1 }, (_, index) => {
+    const thetaDeg = (FULL_CIRCLE_DEGREES * index) / steps;
+    const thetaRad = (thetaDeg * Math.PI) / 180;
+    const roseScale = Math.cos(petalFactor * thetaRad);
+    const bearing =
+      rotationDeg + thetaDeg + (roseScale < 0 ? 180 : 0);
+
+    return destinationPoint(center, radiusMeters * Math.abs(roseScale), bearing);
+  });
+
+const makeLatLngMidpoint = (first: LatLng, second: LatLng): LatLng => ({
+  lat: (first.lat + second.lat) / 2,
+  lng: (first.lng + second.lng) / 2
+});
+
+const makeSierpinskiTriangleSegments = (
+  center: LatLng,
+  radiusMeters: number,
+  rotationDeg: number,
+  depth: number
+): LatLng[][] => {
+  const [top, right, left] = [0, 1, 2].map((index) =>
+    destinationPoint(
+      center,
+      radiusMeters,
+      rotationDeg + (FULL_CIRCLE_DEGREES * index) / 3
+    )
+  );
+
+  const buildSegments = (
+    a: LatLng,
+    b: LatLng,
+    c: LatLng,
+    remainingDepth: number
+  ): LatLng[][] => {
+    if (remainingDepth <= 0) return [[a, b, c, a]];
+
+    const ab = makeLatLngMidpoint(a, b);
+    const bc = makeLatLngMidpoint(b, c);
+    const ca = makeLatLngMidpoint(c, a);
+
+    return [
+      ...buildSegments(a, ab, ca, remainingDepth - 1),
+      ...buildSegments(ab, b, bc, remainingDepth - 1),
+      ...buildSegments(ca, bc, c, remainingDepth - 1)
+    ];
+  };
+
+  return buildSegments(top, right, left, depth);
+};
+
 const pointFromPoi = (point: StarResult["points"][number]): LatLng => ({
   lat: point.lat,
   lng: point.lng
@@ -1225,6 +1283,35 @@ export const makeMagicCircleStrokes = (
   pushCircle("outer-ring", element.ringScale, element.primary, 1.8, 0.72, 930);
   pushCircle("middle-ring", 0.77, element.accent, 1.2, 0.48, 760);
   pushCircle("inner-ring", 0.48, element.pale, 1.1, 0.5, 660);
+
+  pushPolyline(
+    "rose-curve",
+    makeRoseCurvePoints(result.center, radiusMeters * 0.44, mode, phaseDeg),
+    "magic-stroke magic-rose-curve magic-stroke--draw",
+    element.pale,
+    1.15,
+    0.64,
+    1120,
+    0.72
+  );
+
+  makeSierpinskiTriangleSegments(
+    result.center,
+    radiusMeters * 0.82,
+    phaseDeg,
+    3
+  ).forEach((points, index) => {
+    pushPolyline(
+      `sierpinski-triangle-${index}`,
+      points,
+      "magic-stroke magic-sierpinski magic-stroke--draw",
+      index % 3 === 0 ? element.accent : element.primary,
+      0.82,
+      0.46,
+      520,
+      0.08
+    );
+  });
 
   starLineSequences(mode).forEach((sequencePoints, index) => {
     pushPolyline(

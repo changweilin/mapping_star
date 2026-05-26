@@ -106,6 +106,42 @@ describe("magic circle animations", () => {
     }
   });
 
+  it("adds rose curve and Sierpinski triangle geometry to the seal", () => {
+    const result = makeResult(5);
+    const strokes = makeMagicCircleStrokes(result, 14);
+    const roseCurve = strokes.find((stroke) => stroke.id === "rose-curve");
+    const sierpinskiTriangles = strokes.filter((stroke) =>
+      stroke.id.startsWith("sierpinski-triangle-")
+    );
+
+    if (!roseCurve || roseCurve.kind !== "polyline") {
+      throw new Error("Expected a rose curve polyline");
+    }
+
+    expect(roseCurve.className).toContain("magic-rose-curve");
+    expect(roseCurve.points).toHaveLength(193);
+    expect(
+      roseCurve.points.every(
+        (point) =>
+          haversineDistanceMeters(result.center, point) <=
+          result.radiusMeanMeters * 0.45
+      )
+    ).toBe(true);
+
+    expect(sierpinskiTriangles).toHaveLength(27);
+    sierpinskiTriangles.forEach((stroke) => {
+      if (stroke.kind !== "polyline") {
+        throw new Error("Expected a Sierpinski triangle polyline");
+      }
+
+      expect(stroke.className).toContain("magic-sierpinski");
+      expect(stroke.points).toHaveLength(4);
+      expect(
+        haversineDistanceMeters(stroke.points[0], stroke.points[3])
+      ).toBeLessThan(0.001);
+    });
+  });
+
   it("applies the selected element class and palette to every variant", () => {
     for (const [index, element] of MAGIC_ELEMENTS.entries()) {
       const strokes = makeMagicCircleStrokes(makeResult(5), index);
