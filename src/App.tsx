@@ -41,6 +41,7 @@ import { MarqueeSelect } from "./components/MarqueeSelect";
 import { PlaceCandidateList } from "./components/PlaceCandidateList";
 import { RadiusRangeControl } from "./components/RadiusRangeControl";
 import { ResultMetric } from "./components/ResultMetric";
+import { SelectedPoiDetail } from "./components/SelectedPoiDetail";
 import { POI_CATEGORIES } from "./data/categories";
 import { exportGpx, exportKml, splitFavorites } from "./lib/exporters";
 import {
@@ -3958,6 +3959,10 @@ function App() {
     );
   };
 
+  const addPoiFavorite = (poi: Poi) => {
+    addFavorite(makePoiFavorite(poi));
+  };
+
   const toggleStarFavorite = (star: StarResult) => {
     const favoriteId = `star-${star.id}`;
     if (isStarFavorite(star)) {
@@ -4562,34 +4567,12 @@ function App() {
         <section className={getMobileTabPanelClass("results", "panel results-panel")}>
           {renderPanelTitle("results", "繪圖結果", Sparkles)}
           {selectedPoi && (
-            <div className="poi-detail selected-poi-detail">
-              <div className="subsection-title">
-                <MapPin aria-hidden="true" />
-                <strong>選取地點</strong>
-              </div>
-              <strong>{selectedPoi.name}</strong>
-              <span>{selectedPoi.categoryLabel}</span>
-              <span>
-                {formatDistance(selectedPoi.distanceMeters)} /{" "}
-                {Math.round(selectedPoi.bearingDeg)}°
-              </span>
-              <a
-                href={`https://www.openstreetmap.org/${selectedPoi.osmType}/${selectedPoi.osmId}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                OpenStreetMap
-              </a>
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => addFavorite(makePoiFavorite(selectedPoi))}
-                disabled={areFavoritesLocked || isPoiFavorite(selectedPoi)}
-              >
-                <Star size={17} />
-                {isPoiFavorite(selectedPoi) ? "已收藏" : "加入我的最愛"}
-              </button>
-            </div>
+            <SelectedPoiDetail
+              poi={selectedPoi}
+              isFavorite={isPoiFavorite(selectedPoi)}
+              disabled={areFavoritesLocked}
+              onAddFavorite={addPoiFavorite}
+            />
           )}
           {results.length === 0 ? (
             <p className="muted">尚無結果。搜尋 POI 後會列出最佳組合。</p>
