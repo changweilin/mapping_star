@@ -279,7 +279,7 @@ a {
 
 .magic-draw-actions {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1.1fr) repeat(2, minmax(0, 1fr));
+  grid-template-columns: 38px 38px minmax(0, 1.1fr) repeat(2, minmax(0, 1fr));
   align-items: stretch;
   gap: 8px;
   padding: 7px;
@@ -289,7 +289,8 @@ a {
   border-radius: 8px;
 }
 
-.magic-draw-favorite-button {
+.magic-draw-favorite-button,
+.magic-draw-search-toggle {
   display: grid;
   place-items: center;
   width: 38px;
@@ -307,8 +308,16 @@ a {
   border-color: color-mix(in srgb, var(--orange), transparent 42%);
 }
 
+.magic-draw-search-toggle.active {
+  color: var(--button-contrast);
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
 .magic-draw-favorite-button:hover:not(:disabled),
-.magic-draw-favorite-button:focus-visible {
+.magic-draw-search-toggle:hover:not(:disabled),
+.magic-draw-favorite-button:focus-visible,
+.magic-draw-search-toggle:focus-visible {
   color: var(--button-contrast);
   background: var(--blue);
   border-color: var(--blue);
@@ -3046,9 +3055,15 @@ a {
   }
 
   .magic-draw-actions {
-    grid-template-columns: 38px minmax(0, 1.1fr) repeat(2, minmax(0, 1fr));
+    grid-template-columns: 34px 34px minmax(0, 1.1fr) repeat(2, minmax(0, 1fr));
     gap: 6px;
     padding: 6px;
+  }
+
+  .magic-draw-favorite-button,
+  .magic-draw-search-toggle {
+    width: 34px;
+    height: 34px;
   }
 
   .magic-control-button {

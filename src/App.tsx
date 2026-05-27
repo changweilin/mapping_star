@@ -120,6 +120,7 @@ import {
 } from "./lib/starPatterns";
 import { formatClockTime, formatElapsedMs } from "./lib/timeFormat";
 import {
+  preparePois,
   solveStarFromPois,
   solveStarFromPoisSteps,
   type SolveProgress
@@ -162,6 +163,7 @@ const MAX_RADIUS_KM = 30;
 const MAX_STAR_RESULTS = 50;
 const MAX_HONEYCOMB_PREVIEW_CELLS = 240;
 const HONEYCOMB_BATCH_RESULT_LIMIT = 900;
+const MIN_SOLVER_TARGET_DISTANCE_METERS = 30;
 const MAGIC_POINT_DELAY_MS = 1880;
 const MAGIC_POINT_STEP_MS = 90;
 const MAGIC_POINT_DURATION_MS = 520;
@@ -1440,6 +1442,7 @@ function App() {
   const isMagicCenterLockedRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [isSearchDrawing, setIsSearchDrawing] = useState(false);
+  const [shouldSearchBeforeDraw, setShouldSearchBeforeDraw] = useState(true);
   const [calculationProgress, setCalculationProgress] =
     useState<CalculationProgress | null>(null);
   const [completionNotice, setCompletionNotice] =
@@ -1534,7 +1537,10 @@ function App() {
   const trimmedSearchText = searchText.trim();
   const shouldShowPlaceCandidates =
     placeCandidates.length > 0 && placeCandidateQuery === trimmedSearchText;
-  const searchDrawButtonLabel = isSearchDrawing ? "取消搜索" : "搜索繪製";
+  const drawButtonLabel = isSearchDrawing ? "取消繪製" : "繪製";
+  const searchBeforeDrawButtonLabel = shouldSearchBeforeDraw
+    ? "已開啟：繪製前先搜索目標點"
+    : "已關閉：使用現有目標點繪製";
   const isSearchSettingsLocked = isSearchDrawing;
   const areFavoritesLocked = isSearchDrawing;
   const isMagicCenterLocked = isSearchDrawing;
@@ -1853,7 +1859,7 @@ function App() {
   const handleCancelSearch = () => {
     if (!isSearchDrawing) return;
     searchAbortControllerRef.current?.abort();
-    setProgressStep(100, "正在取消搜索...");
+    setProgressStep(100, "正在取消繪製...");
   };
   const getMobileSplitBounds = () => {
     const shell = appShellRef.current;
@@ -2101,6 +2107,22 @@ function App() {
         poi.distanceMeters >= effectiveInnerRadiusMeters &&
         poi.distanceMeters <= outerRadiusMeters
     ).length;
+  const getRequiredTargetPointCount = () =>
+    honeycombSearchProfile.targetNodes.length > 0
+      ? honeycombSearchProfile.targetNodes.length
+      : starMode;
+  const countDrawableTargetPoints = (items: Poi[], nextCenter = center) =>
+    preparePois(items, nextCenter).filter(
+      (poi) =>
+        poi.distanceMeters >=
+          Math.max(MIN_SOLVER_TARGET_DISTANCE_METERS, effectiveInnerRadiusMeters) &&
+        poi.distanceMeters <= outerRadiusMeters
+    ).length;
+  const makeInsufficientTargetPointMessage = (
+    targetPointCount: number,
+    requiredPointCount: number
+  ) =>
+    `目前只有 ${targetPointCount} 個可用目標點，至少需要 ${requiredPointCount} 個才能繪製。請開啟搜索或先補充更多目標點。`;
   const getEstimatedMagicAnimationMs = (result: StarResult | null) => {
     if (!result) return null;
 
@@ -2375,8 +2397,8 @@ function App() {
       id: `${summary.id}-notice`,
       title:
         summary.resultCount > 0
-          ? `${getStarModeLabel(summary.mode)}魔法陣搜索完成`
-          : "搜索完成，尚無魔法陣",
+          ? `${getStarModeLabel(summary.mode)}魔法陣繪製完成`
+          : "繪製完成，尚無魔法陣",
       message:
         summary.resultCount > 0
           ? `${summary.resultCount} 組 · ${formatElapsedMs(
@@ -2393,7 +2415,7 @@ function App() {
     clearCompletionNoticeTimer();
     setCompletionNotice({
       id: `failed-${Date.now()}`,
-      title: "搜索已停止",
+      title: "繪製已停止",
       message,
       variant: "error"
     });
@@ -3305,13 +3327,15 @@ function App() {
     nextCenter,
     signal,
     initialBestScore,
-    onFirstResult
+    onFirstResult,
+    trackHoneycombProgress = true
   }: {
     nextPois: Poi[];
     nextCenter: LatLng;
     signal?: AbortSignal;
     initialBestScore: number | null;
     onFirstResult: (sourceLabel: string) => void;
+    trackHoneycombProgress?: boolean;
   }) => {
     const iterator = solveStarFromPoisSteps(nextPois, {
       ...solverParams,
@@ -3324,7 +3348,7 @@ function App() {
 
     while (!step.done) {
       if (signal?.aborted) {
-        throw new DOMException("已取消搜索。", "AbortError");
+        throw new DOMException("已取消繪製。", "AbortError");
       }
 
       const progress = step.value;
@@ -3337,7 +3361,7 @@ function App() {
         getSolveProgressPercent(searchStrategy, progress),
         getSolveProgressLabel(progress)
       );
-      if (searchStrategy === "honeycomb") {
+      if (trackHoneycombProgress && searchStrategy === "honeycomb") {
         setHoneycombCompletedTargetCount(
           progress.completedSteps * solverParams.mode
         );
@@ -3376,7 +3400,7 @@ function App() {
     finalResults = step.value;
     setResults(finalResults);
     setSelectedResultIndex(0);
-    if (searchStrategy === "honeycomb") {
+    if (trackHoneycombProgress && searchStrategy === "honeycomb") {
       setHoneycombCompletedTargetCount(Number.POSITIVE_INFINITY);
     }
 
@@ -3486,6 +3510,153 @@ function App() {
         timeout: 10000
       }
     );
+  };
+
+  const handleDrawExistingTargets = async () => {
+    if (isSearchDrawing) {
+      handleCancelSearch();
+      return;
+    }
+
+    const targetPointCount = countDrawableTargetPoints(pois);
+    const requiredPointCount = getRequiredTargetPointCount();
+    if (targetPointCount < requiredPointCount) {
+      const message = makeInsufficientTargetPointMessage(
+        targetPointCount,
+        requiredPointCount
+      );
+      resetProgress();
+      setStatus(message);
+      setError(message);
+      showFailureNotice(message);
+      return;
+    }
+
+    const startedAtMs = getNowMs();
+    const startedAtIso = new Date().toISOString();
+    let firstResultElapsedMs: number | null = null;
+    let firstResultAtIso: string | null = null;
+    let firstResultSourceLabel: string | null = null;
+    let solveElapsedMs = 0;
+    const markFirstResult = (sourceLabel: string) => {
+      if (firstResultElapsedMs !== null) return;
+      firstResultElapsedMs = getNowMs() - startedAtMs;
+      firstResultAtIso = new Date().toISOString();
+      firstResultSourceLabel = sourceLabel;
+    };
+
+    const searchController = new AbortController();
+    const preparedPois = preparePois(pois, center);
+    searchAbortControllerRef.current = searchController;
+    skipNextAutoSolveForCenter(center);
+    isMagicCenterLockedRef.current = true;
+    setIsSearchDrawing(true);
+    setLoading(true);
+    setError("");
+    clearCompletionNotice();
+    clearCurrentMagicCircle();
+    setExpandedFavoriteId(null);
+    setHoneycombCompletedTargetCount(null);
+    setPois(preparedPois);
+
+    try {
+      setProgressStep(12, "整理現有目標點");
+      await waitForPaint();
+      const solveStartedAtMs = getNowMs();
+      const progressiveResult = await runSolverProgressively({
+        nextPois: preparedPois,
+        nextCenter: center,
+        signal: searchController.signal,
+        initialBestScore: null,
+        onFirstResult: markFirstResult,
+        trackHoneycombProgress: false
+      });
+      const nextResults = progressiveResult.results;
+      solveElapsedMs = getNowMs() - solveStartedAtMs;
+      setProgressStep(
+        nextResults.length > 0 ? 92 : 88,
+        nextResults.length > 0 ? "繪製魔法陣" : "整理計算結果"
+      );
+      const renderStartedAtMs = getNowMs();
+      await waitForPaint();
+      if (nextResults.length > 0) markFirstResult("現有目標點");
+      const finishedAtMs = getNowMs();
+      const notes = [
+        `未執行搜索，使用目前 ${targetPointCount} 個目標點繪製。`
+      ];
+      if (nextResults.length === 0) {
+        notes.push(
+          "現有目標點數量足夠，但角度、半徑或圖案條件仍未形成可用結果。"
+        );
+      }
+
+      const summary = makeDrawSummary({
+        sourceLabel: "繪製",
+        startedAtMs,
+        startedAtIso,
+        finishedAtMs,
+        firstResultElapsedMs,
+        firstResultAtIso,
+        firstResultSourceLabel,
+        solveElapsedMs,
+        renderElapsedMs: finishedAtMs - renderStartedAtMs,
+        nextResults,
+        nextPois: preparedPois,
+        nextCenter: center,
+        nextCenterLabel: centerName,
+        addedPoiCount: 0,
+        notes,
+        categoryCount: selectedCategories.length
+      });
+      addCalculationRecord(makeCalculationRecordFromSummary(summary));
+      setStatus(formatDrawSummaryStatus(summary));
+      showCompletionNotice(summary);
+      completeProgress(formatDrawSummaryProgressLabel(summary));
+    } catch (drawError) {
+      if (drawError instanceof Error && drawError.name === "AbortError") {
+        const finishedAtMs = getNowMs();
+        addCalculationRecord(
+          makeCalculationMessageRecord({
+            status: "cancelled",
+            sourceLabel: "繪製",
+            title: "繪製已取消",
+            message: "已取消繪製。",
+            startedAtIso,
+            startedAtMs,
+            finishedAtMs
+          })
+        );
+        setStatus("已取消繪製。");
+        completeProgress("已取消繪製");
+        return;
+      }
+
+      const finishedAtMs = getNowMs();
+      const message =
+        drawError instanceof Error ? drawError.message : "繪製失敗。";
+      addCalculationRecord(
+        makeCalculationMessageRecord({
+          status: "failed",
+          sourceLabel: "繪製",
+          title: "繪製失敗",
+          message,
+          startedAtIso,
+          startedAtMs,
+          finishedAtMs
+        })
+      );
+      resetProgress();
+      setStatus(`繪製失敗：${message}`);
+      setError(message);
+      showFailureNotice(message);
+    } finally {
+      if (searchAbortControllerRef.current === searchController) {
+        searchAbortControllerRef.current = null;
+      }
+      isMagicCenterLockedRef.current = false;
+      setIsSearchDrawing(false);
+      setLoading(false);
+    }
   };
 
   const handleFetchAndSolve = async () => {
@@ -3621,7 +3792,7 @@ function App() {
 
         for (const [batchIndex, batch] of honeycombBatches.entries()) {
           if (searchController.signal.aborted) {
-            throw new DOMException("已取消搜索。", "AbortError");
+            throw new DOMException("已取消繪製。", "AbortError");
           }
 
           setProgressStep(
@@ -3694,6 +3865,19 @@ function App() {
         const mergedPois = latestMergedPois;
         const addedPoiCount = mergedPois.length - pois.length;
         setPois(mergedPois);
+        const targetPointCount = countDrawableTargetPoints(
+          mergedPois,
+          searchCenter.center
+        );
+        const requiredPointCount = getRequiredTargetPointCount();
+        if (targetPointCount < requiredPointCount) {
+          throw new Error(
+            makeInsufficientTargetPointMessage(
+              targetPointCount,
+              requiredPointCount
+            )
+          );
+        }
         setProgressStep(
           getAnalyzeProgressPercent(searchStrategy),
           `整理 ${mergedPois.length} 個蜂巢候選點`
@@ -3731,7 +3915,7 @@ function App() {
         );
 
         const summary = makeDrawSummary({
-          sourceLabel: "搜尋繪製",
+          sourceLabel: "繪製",
           startedAtMs,
           startedAtIso,
           finishedAtMs,
@@ -3783,6 +3967,19 @@ function App() {
       const mergedPois = mergePois(latestMergedPois, nextPois);
       const addedPoiCount = mergedPois.length - pois.length;
       setPois(mergedPois);
+      const targetPointCount = countDrawableTargetPoints(
+        mergedPois,
+        searchCenter.center
+      );
+      const requiredPointCount = getRequiredTargetPointCount();
+      if (targetPointCount < requiredPointCount) {
+        throw new Error(
+          makeInsufficientTargetPointMessage(
+            targetPointCount,
+            requiredPointCount
+          )
+        );
+      }
       setProgressStep(
         getAnalyzeProgressPercent(searchStrategy),
         `分析 ${mergedPois.length} 個候選點`
@@ -3818,7 +4015,7 @@ function App() {
       }
 
       const summary = makeDrawSummary({
-        sourceLabel: "搜尋繪製",
+        sourceLabel: "繪製",
         startedAtMs,
         startedAtIso,
         finishedAtMs,
@@ -3849,16 +4046,16 @@ function App() {
         addCalculationRecord(
           makeCalculationMessageRecord({
             status: "cancelled",
-            sourceLabel: "搜尋繪製",
-            title: "搜尋繪製已取消",
-            message: "已取消搜索。",
+            sourceLabel: "繪製",
+            title: "繪製已取消",
+            message: "已取消繪製。",
             startedAtIso,
             startedAtMs,
             finishedAtMs
           })
         );
-        setStatus("已取消搜索。");
-        completeProgress("已取消搜索");
+        setStatus("已取消繪製。");
+        completeProgress("已取消繪製");
         return;
       }
 
@@ -3868,8 +4065,8 @@ function App() {
       addCalculationRecord(
         makeCalculationMessageRecord({
           status: "failed",
-          sourceLabel: "搜尋繪製",
-          title: "搜尋繪製失敗",
+          sourceLabel: "繪製",
+          title: "繪製失敗",
           message,
           startedAtIso,
           startedAtMs,
@@ -3877,7 +4074,7 @@ function App() {
         })
       );
       resetProgress();
-      setStatus(`搜尋繪製失敗：${message}`);
+      setStatus(`繪製失敗：${message}`);
       setError(message);
       showFailureNotice(message);
     } finally {
@@ -3944,7 +4141,7 @@ function App() {
     options: { allowWhileLocked?: boolean } = {}
   ) => {
     if (areFavoritesLocked && !options.allowWhileLocked) {
-      setStatus("搜索繪製進行中，我的最愛已暫時鎖定。");
+      setStatus("繪製進行中，我的最愛已暫時鎖定。");
       return false;
     }
 
@@ -3961,7 +4158,7 @@ function App() {
     options: { allowWhileLocked?: boolean } = {}
   ) => {
     if (areFavoritesLocked && !options.allowWhileLocked) {
-      setStatus("搜索繪製進行中，我的最愛已暫時鎖定。");
+      setStatus("繪製進行中，我的最愛已暫時鎖定。");
       return false;
     }
 
@@ -3974,7 +4171,7 @@ function App() {
 
   const restoreFavorite = (favorite: FavoriteItem) => {
     if (areFavoritesLocked) {
-      setStatus("搜索繪製進行中，我的最愛已暫時鎖定。");
+      setStatus("繪製進行中，我的最愛已暫時鎖定。");
       return;
     }
 
@@ -4121,7 +4318,7 @@ function App() {
 
   const exportFavorites = (format: "gpx" | "kml") => {
     if (areFavoritesLocked) {
-      setStatus("搜索繪製進行中，我的最愛已暫時鎖定。");
+      setStatus("繪製進行中，我的最愛已暫時鎖定。");
       return;
     }
 
@@ -4146,7 +4343,7 @@ function App() {
 
   const exportSearchSessionJson = () => {
     if (isSearchDrawing) {
-      setStatus("搜索繪製進行中，請完成或取消後再匯出搜尋資料。");
+      setStatus("繪製進行中，請完成或取消後再匯出搜尋資料。");
       return;
     }
 
@@ -4211,7 +4408,7 @@ function App() {
 
   const importSearchSessionJson = async (file: File) => {
     if (isSearchDrawing) {
-      setStatus("搜索繪製進行中，請完成或取消後再匯入搜尋資料。");
+      setStatus("繪製進行中，請完成或取消後再匯入搜尋資料。");
       return;
     }
 
@@ -4258,7 +4455,7 @@ function App() {
 
   const exportFavoritesJson = () => {
     if (areFavoritesLocked) {
-      setStatus("搜索繪製進行中，我的最愛已暫時鎖定。");
+      setStatus("繪製進行中，我的最愛已暫時鎖定。");
       return;
     }
 
@@ -4277,7 +4474,7 @@ function App() {
 
   const importFavoritesJson = async (file: File) => {
     if (areFavoritesLocked) {
-      setStatus("搜索繪製進行中，我的最愛已暫時鎖定。");
+      setStatus("繪製進行中，我的最愛已暫時鎖定。");
       return;
     }
 
@@ -4484,7 +4681,7 @@ function App() {
         <section
           className="magic-draw-actions"
           ref={magicDrawActionsRef}
-          aria-label="搜索繪製與圖案模式"
+          aria-label="繪製與圖案模式"
         >
           <button
             aria-label={magicDrawFavoriteButtonLabel}
@@ -4504,13 +4701,32 @@ function App() {
             />
           </button>
           <button
+            aria-label={searchBeforeDrawButtonLabel}
+            aria-pressed={shouldSearchBeforeDraw}
+            className={`magic-draw-search-toggle ${
+              shouldSearchBeforeDraw ? "active" : ""
+            }`}
+            disabled={isSearchSettingsLocked}
+            title={searchBeforeDrawButtonLabel}
+            type="button"
+            onClick={() =>
+              setShouldSearchBeforeDraw((current) => !current)
+            }
+          >
+            <Search aria-hidden="true" size={17} />
+          </button>
+          <button
             className="primary-button search-draw-button"
             type="button"
-            onClick={() => void handleFetchAndSolve()}
+            onClick={() =>
+              void (shouldSearchBeforeDraw
+                ? handleFetchAndSolve()
+                : handleDrawExistingTargets())
+            }
             disabled={loading && !isSearchDrawing}
           >
             <Play size={17} />
-            <span>{searchDrawButtonLabel}</span>
+            <span>{drawButtonLabel}</span>
           </button>
           <label className="select-wrap select-wrap--compact pattern-mode-select magic-draw-select">
             <select
@@ -4861,7 +5077,7 @@ function App() {
           />
           {calculationRecords.length === 0 ? (
             <p className="muted">
-              尚無計算紀錄。執行搜索繪製或自動計算後會保留每一次結果。
+              尚無計算紀錄。執行繪製或自動計算後會保留每一次結果。
             </p>
           ) : (
             <div className="calculation-record-list">
@@ -5049,7 +5265,7 @@ function App() {
           {renderPanelTitle("favorites", "我的最愛", Star)}
           {areFavoritesLocked && (
             <p className="favorites-lock-note">
-              搜索繪製進行中，我的最愛已暫時鎖定。
+              繪製進行中，我的最愛已暫時鎖定。
             </p>
           )}
           {favorites.length === 0 ? (
@@ -5370,7 +5586,7 @@ function App() {
                   <strong>{Math.round(calculationProgress.percent)}%</strong>
                 </div>
                 <div
-                  aria-label="搜尋繪製進度"
+                  aria-label="繪製進度"
                   aria-valuemax={100}
                   aria-valuemin={0}
                   aria-valuenow={Math.round(calculationProgress.percent)}

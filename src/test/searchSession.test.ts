@@ -58,8 +58,8 @@ const star: StarResult = {
 const record: CalculationRecord = {
   id: "calculation-1",
   status: "completed",
-  sourceLabel: "搜索繪製",
-  title: "搜索繪製完成",
+  sourceLabel: "繪製",
+  title: "繪製完成",
   message: "完成",
   startedAtIso: "2026-05-21T00:00:00.000Z",
   finishedAtIso: "2026-05-21T00:00:01.000Z",
