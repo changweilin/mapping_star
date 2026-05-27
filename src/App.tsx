@@ -1537,7 +1537,7 @@ function App() {
   const trimmedSearchText = searchText.trim();
   const shouldShowPlaceCandidates =
     placeCandidates.length > 0 && placeCandidateQuery === trimmedSearchText;
-  const drawButtonLabel = isSearchDrawing ? "取消繪製" : "繪製";
+  const drawButtonLabel = isSearchDrawing ? "取消" : "繪製";
   const searchBeforeDrawButtonLabel = shouldSearchBeforeDraw
     ? "已開啟：繪製前先搜索目標點"
     : "已關閉：使用現有目標點繪製";

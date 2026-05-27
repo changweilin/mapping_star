@@ -291,6 +291,7 @@ a {
 
 .magic-draw-favorite-button,
 .magic-draw-search-toggle {
+  position: relative;
   display: grid;
   place-items: center;
   width: 38px;
@@ -300,6 +301,24 @@ a {
   background: var(--input-bg);
   border: 1px solid var(--line);
   border-radius: 6px;
+}
+
+.magic-draw-search-toggle {
+  color: var(--ink-soft);
+  background: var(--secondary-bg);
+  border-color: var(--secondary-line);
+}
+
+.magic-draw-search-toggle::after {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 7px;
+  height: 7px;
+  content: "";
+  background: var(--ink-soft);
+  border: 1px solid var(--panel);
+  border-radius: 50%;
 }
 
 .magic-draw-favorite-button.active {
@@ -314,12 +333,23 @@ a {
   border-color: var(--blue);
 }
 
+.magic-draw-search-toggle.active::after {
+  background: var(--green);
+}
+
 .magic-draw-favorite-button:hover:not(:disabled),
-.magic-draw-search-toggle:hover:not(:disabled),
 .magic-draw-favorite-button:focus-visible,
-.magic-draw-search-toggle:focus-visible {
+.magic-draw-search-toggle.active:hover:not(:disabled),
+.magic-draw-search-toggle.active:focus-visible {
   color: var(--button-contrast);
   background: var(--blue);
+  border-color: var(--blue);
+}
+
+.magic-draw-search-toggle:not(.active):hover:not(:disabled),
+.magic-draw-search-toggle:not(.active):focus-visible {
+  color: var(--blue-dark);
+  background: var(--secondary-bg);
   border-color: var(--blue);
 }
 
