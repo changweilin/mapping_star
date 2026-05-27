@@ -7,6 +7,7 @@ import {
   type WheelEvent,
   useEffect,
   useLayoutEffect,
+  useCallback,
   useMemo,
   useRef,
   useState
@@ -157,6 +158,7 @@ type MobileSettingsTab =
   | "logs"
   | "results"
   | "favorites";
+type PoiRenderMode = "limited" | "all" | "hidden";
 
 const MAX_RENDERED_POIS = 350;
 const MAX_RADIUS_KM = 30;
@@ -1389,6 +1391,9 @@ function App() {
     null
   );
   const [selectedPoi, setSelectedPoi] = useState<Poi | null>(null);
+  const [showMagicTargetLabels, setShowMagicTargetLabels] = useState(true);
+  const [poiRenderMode, setPoiRenderMode] =
+    useState<PoiRenderMode>("limited");
   const [magicAnimationIndex, setMagicAnimationIndex] = useState(
     initialSettings.magicAnimationIndex
   );
@@ -1615,6 +1620,24 @@ function App() {
       ),
     [effectiveInnerRadiusMeters, outerRadiusMeters, pois]
   );
+  const renderedPois = useMemo(() => {
+    if (poiRenderMode === "hidden") return [];
+    if (poiRenderMode === "all") return visiblePois;
+    return visiblePois.slice(0, MAX_RENDERED_POIS);
+  }, [poiRenderMode, visiblePois]);
+  const poiRenderToggleLabel =
+    poiRenderMode === "hidden"
+      ? "完全不顯示"
+      : poiRenderMode === "all" || visiblePois.length <= MAX_RENDERED_POIS
+        ? `顯示全部 ${visiblePois.length} 筆`
+        : `顯示前 ${MAX_RENDERED_POIS} 筆`;
+  const isShowingEveryPoi =
+    poiRenderMode !== "hidden" &&
+    (poiRenderMode === "all" || visiblePois.length <= MAX_RENDERED_POIS);
+  const poiRenderToggleTitle =
+    poiRenderMode === "hidden" || !isShowingEveryPoi
+      ? "顯示全部座標點"
+      : "隱藏全部座標點";
   const maxAngleToleranceDeg = maxAngleToleranceForMode(starMode);
   const effectiveAngleToleranceDeg = Math.min(
     angleToleranceDeg,
@@ -1820,6 +1843,18 @@ function App() {
     setSelectedResultIndex(index);
     setExpandedResultId((current) =>
       current === result.id ? null : result.id
+    );
+  };
+  const handlePoiSelect = useCallback((poi: Poi) => {
+    setSelectedPoi(poi);
+    setShowMagicTargetLabels((current) => !current);
+  }, []);
+  const handlePoiRenderToggle = () => {
+    setPoiRenderMode((current) =>
+      current === "all" ||
+      (current === "limited" && visiblePois.length <= MAX_RENDERED_POIS)
+        ? "hidden"
+        : "all"
     );
   };
   const clearCurrentMagicCircle = () => {
@@ -2777,6 +2812,7 @@ function App() {
     if (!mapElementRef.current || mapRef.current) return;
 
     const map = L.map(mapElementRef.current, {
+      attributionControl: false,
       zoomControl: false
     });
     map.fitBounds(makeRadiusBounds(center, outerRadiusMeters).pad(0.08), {
@@ -2786,6 +2822,7 @@ function App() {
     });
 
     L.control.zoom({ position: "bottomright" }).addTo(map);
+    L.control.attribution({ position: "bottomright", prefix: false }).addTo(map);
 
     centerLayerRef.current = L.layerGroup().addTo(map);
     honeycombLayerRef.current = L.layerGroup().addTo(map);
@@ -3066,22 +3103,23 @@ function App() {
     if (!group) return;
     group.clearLayers();
 
-    visiblePois.slice(0, MAX_RENDERED_POIS).forEach((poi) => {
+    renderedPois.forEach((poi) => {
       const marker = L.circleMarker([poi.lat, poi.lng], {
         radius: 5,
         color: poi.categoryColor,
         fillColor: poi.categoryColor,
         fillOpacity: 0.7,
         weight: 1.5,
-        opacity: 0.85
+        opacity: 0.85,
+        bubblingMouseEvents: false
       });
       marker.bindTooltip(`${poi.name}<br>${poi.categoryLabel}`, {
         direction: "top"
       });
-      marker.on("click", () => setSelectedPoi(poi));
+      marker.on("click", () => handlePoiSelect(poi));
       marker.addTo(group);
     });
-  }, [visiblePois]);
+  }, [handlePoiSelect, renderedPois]);
 
   useEffect(() => {
     const group = sectorLayerRef.current;
@@ -3204,9 +3242,11 @@ function App() {
         opacity: 0.38,
         fillColor: magicElement.pale,
         fillOpacity: magicGeometryPattern === "combined" ? 0.2 : 0.26,
+        bubblingMouseEvents: false,
         className: `star-point star-point--appear magic-element--${magicElement.id}`
-      })
-        .bindTooltip(
+      });
+      if (showMagicTargetLabels) {
+        marker.bindTooltip(
           `${
             magicGeometryPattern === "combined" ? "" : "目標 "
           }${index + 1}. ${poi.name}`,
@@ -3216,9 +3256,9 @@ function App() {
             permanent: true,
             className: "star-label star-label--below"
           }
-        )
-        .on("click", () => setSelectedPoi(poi))
-        .addTo(group);
+        );
+      }
+      marker.on("click", () => handlePoiSelect(poi)).addTo(group);
       const markerElement = marker.getElement() as SVGElement | null;
       markerElement?.classList.add("magic-drawable");
       if (markerElement) {
@@ -3241,7 +3281,9 @@ function App() {
     magicGeometryVariantKey,
     magicReplayKey,
     magicSpeed,
-    selectedResult
+    handlePoiSelect,
+    selectedResult,
+    showMagicTargetLabels
   ]);
 
   useEffect(() => {
@@ -5214,7 +5256,7 @@ function App() {
                               <li key={point.id}>
                                 <button
                                   type="button"
-                                  onClick={() => setSelectedPoi(point)}
+                                  onClick={() => handlePoiSelect(point)}
                                 >
                                   <span className="point-list__index">
                                     {pointIndex + 1}
@@ -5334,7 +5376,7 @@ function App() {
                                 <li key={point.id}>
                                   <button
                                     type="button"
-                                    onClick={() => setSelectedPoi(point)}
+                                    onClick={() => handlePoiSelect(point)}
                                   >
                                     <span className="point-list__index">
                                       {pointIndex + 1}
@@ -5645,8 +5687,17 @@ function App() {
             {pois.length !== visiblePois.length && (
               <span>{pois.length} 已下載</span>
             )}
-            {visiblePois.length > MAX_RENDERED_POIS && (
-              <span>顯示前 {MAX_RENDERED_POIS} 筆</span>
+            {visiblePois.length > 0 && (
+              <button
+                className="map-counter__toggle"
+                type="button"
+                title={poiRenderToggleTitle}
+                aria-label={poiRenderToggleTitle}
+                aria-pressed={poiRenderMode !== "hidden"}
+                onClick={handlePoiRenderToggle}
+              >
+                {poiRenderToggleLabel}
+              </button>
             )}
           </div>
         </div>
