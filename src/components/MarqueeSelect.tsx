@@ -11,6 +11,7 @@ import {
 
 type MarqueeSelectProps = {
   label: string;
+  hideLabel?: boolean;
   value: string | number;
   valueLabel: string;
   children: ReactNode;
@@ -24,6 +25,7 @@ type MarqueeSelectProps = {
 
 export const MarqueeSelect = ({
   label,
+  hideLabel = false,
   value,
   valueLabel,
   children,
@@ -99,9 +101,10 @@ export const MarqueeSelect = ({
       onTouchStart={onTouchStart}
       onWheel={onWheel}
     >
-      <span className="select-wrap__label">{label}</span>
+      {!hideLabel && <span className="select-wrap__label">{label}</span>}
       <span className="select-shell" title={valueLabel}>
         <select
+          aria-label={label}
           value={value}
           onChange={(event: ChangeEvent<HTMLSelectElement>) =>
             onChange(event.target.value)

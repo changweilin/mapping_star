@@ -279,7 +279,7 @@ a {
 
 .magic-draw-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 38px minmax(0, 1.1fr) repeat(2, minmax(0, 1fr));
   align-items: stretch;
   gap: 8px;
   padding: 7px;
@@ -287,6 +287,31 @@ a {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.magic-draw-favorite-button {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  color: var(--blue-dark);
+  background: var(--input-bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.magic-draw-favorite-button.active {
+  color: var(--orange);
+  background: color-mix(in srgb, var(--orange), transparent 88%);
+  border-color: color-mix(in srgb, var(--orange), transparent 42%);
+}
+
+.magic-draw-favorite-button:hover:not(:disabled),
+.magic-draw-favorite-button:focus-visible {
+  color: var(--button-contrast);
+  background: var(--blue);
+  border-color: var(--blue);
 }
 
 .magic-draw-actions .search-draw-button {
@@ -3021,7 +3046,7 @@ a {
   }
 
   .magic-draw-actions {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: 38px minmax(0, 1.1fr) repeat(2, minmax(0, 1fr));
     gap: 6px;
     padding: 6px;
   }

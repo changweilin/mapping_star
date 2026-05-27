@@ -3831,10 +3831,13 @@ function App() {
     );
   };
 
-  const addFavorite = (favorite: FavoriteItem) => {
-    if (areFavoritesLocked) {
+  const addFavorite = (
+    favorite: FavoriteItem,
+    options: { allowWhileLocked?: boolean } = {}
+  ) => {
+    if (areFavoritesLocked && !options.allowWhileLocked) {
       setStatus("搜索繪製進行中，我的最愛已暫時鎖定。");
-      return;
+      return false;
     }
 
     setFavorites((current) => {
@@ -3842,18 +3845,23 @@ function App() {
       return [favorite, ...current];
     });
     setStatus(`已加入我的最愛：${favorite.name}`);
+    return true;
   };
 
-  const removeFavorite = (favoriteId: string) => {
-    if (areFavoritesLocked) {
+  const removeFavorite = (
+    favoriteId: string,
+    options: { allowWhileLocked?: boolean } = {}
+  ) => {
+    if (areFavoritesLocked && !options.allowWhileLocked) {
       setStatus("搜索繪製進行中，我的最愛已暫時鎖定。");
-      return;
+      return false;
     }
 
     setFavorites((current) => current.filter((item) => item.id !== favoriteId));
     setExpandedFavoriteId((current) =>
       current === favoriteId ? null : current
     );
+    return true;
   };
 
   const restoreFavorite = (favorite: FavoriteItem) => {
@@ -3953,25 +3961,32 @@ function App() {
       star
     });
 
-  const addStarFavorite = (star: StarResult) => {
+  const addStarFavorite = (
+    star: StarResult,
+    options: { allowWhileLocked?: boolean } = {}
+  ) =>
     addFavorite(
-      makeStarFavorite(star, getAutomaticNameForStar(star))
+      makeStarFavorite(star, getAutomaticNameForStar(star)),
+      options
     );
-  };
 
   const addPoiFavorite = (poi: Poi) => {
     addFavorite(makePoiFavorite(poi));
   };
 
-  const toggleStarFavorite = (star: StarResult) => {
+  const toggleStarFavorite = (
+    star: StarResult,
+    options: { allowWhileLocked?: boolean } = {}
+  ) => {
     const favoriteId = `star-${star.id}`;
     if (isStarFavorite(star)) {
-      removeFavorite(favoriteId);
-      setStatus(`已從我的最愛移除：${getAutomaticNameForStar(star)}`);
+      if (removeFavorite(favoriteId, options)) {
+        setStatus(`已從我的最愛移除：${getAutomaticNameForStar(star)}`);
+      }
       return;
     }
 
-    addStarFavorite(star);
+    addStarFavorite(star, options);
   };
 
   const exportStar = (result: StarResult, format: "gpx" | "kml") => {
@@ -4043,6 +4058,25 @@ function App() {
     Boolean(selectedResult) &&
     magicPlayback === "playing" &&
     magicDirection === "forward";
+  const isSelectedMagicFavorite = selectedResult
+    ? isStarFavorite(selectedResult)
+    : false;
+  const selectedMagicFavoriteName = selectedResult
+    ? getAutomaticNameForStar(selectedResult)
+    : "";
+  const magicDrawFavoriteButtonLabel = !selectedResult
+    ? "尚無可收藏的魔法陣"
+    : isSelectedMagicFavorite
+      ? `取消我的最愛：${selectedMagicFavoriteName}`
+      : `加入我的最愛：${selectedMagicFavoriteName}`;
+  const toggleCurrentMagicFavorite = () => {
+    if (!selectedResult) {
+      setStatus("尚無可收藏的魔法陣。");
+      return;
+    }
+
+    toggleStarFavorite(selectedResult, { allowWhileLocked: true });
+  };
 
   return (
     <main className="app-shell" ref={appShellRef} style={appShellStyle}>
@@ -4113,6 +4147,7 @@ function App() {
           </div>
           <div className="magic-player-fields">
             <MarqueeSelect
+              hideLabel
               label="模式"
               value={magicPlaybackMode}
               valueLabel={magicPlaybackModeLabel}
@@ -4132,6 +4167,7 @@ function App() {
               ))}
             </MarqueeSelect>
             <MarqueeSelect
+              hideLabel
               label="速度"
               value={magicSpeed}
               valueLabel={magicSpeedLabel}
@@ -4151,6 +4187,7 @@ function App() {
               ))}
             </MarqueeSelect>
             <MarqueeSelect
+              hideLabel
               label="圖案"
               value={magicAnimationIndex}
               valueLabel={magicAnimationLabel}
@@ -4175,6 +4212,23 @@ function App() {
           ref={magicDrawActionsRef}
           aria-label="搜索繪製與圖案模式"
         >
+          <button
+            aria-label={magicDrawFavoriteButtonLabel}
+            aria-pressed={isSelectedMagicFavorite}
+            className={`magic-draw-favorite-button ${
+              isSelectedMagicFavorite ? "active" : ""
+            }`}
+            disabled={!selectedResult}
+            title={magicDrawFavoriteButtonLabel}
+            type="button"
+            onClick={toggleCurrentMagicFavorite}
+          >
+            <Star
+              aria-hidden="true"
+              fill={isSelectedMagicFavorite ? "currentColor" : "none"}
+              size={17}
+            />
+          </button>
           <button
             className="primary-button search-draw-button"
             type="button"
