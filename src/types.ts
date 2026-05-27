@@ -31,6 +31,16 @@ export interface Poi {
 
 export type StarMode = 4 | 5 | 6 | 7 | 8;
 export type SearchStrategy = "angular" | "honeycomb";
+export type MagicPlaybackMode = "single" | "continuous" | "loop-all" | "loop-one";
+export type MagicPlayback = "playing" | "paused" | "ended";
+export type MagicPlaybackDirection = "forward" | "reverse";
+export type MagicDrawShape =
+  | "star"
+  | "cross"
+  | "bagua"
+  | "rose"
+  | "sierpinski"
+  | "zodiac";
 
 export interface StarResult {
   id: string;
@@ -79,4 +89,53 @@ export interface PlaceSearchResult {
   center: LatLng;
   label: string;
   detail?: string;
+}
+
+export interface DrawSummary {
+  id: string;
+  sourceLabel: string;
+  startedAtIso: string;
+  finishedAtIso: string;
+  firstResultAtIso: string | null;
+  firstResultElapsedMs: number | null;
+  firstResultSourceLabel: string | null;
+  totalElapsedMs: number;
+  searchElapsedMs: number | null;
+  solveElapsedMs: number;
+  previewSolveCount: number;
+  previewSolveElapsedMs: number;
+  renderElapsedMs: number;
+  estimatedAnimationMs: number | null;
+  resultCount: number;
+  resultLimit: number;
+  eligiblePoiCount: number;
+  totalPoiCount: number;
+  fetchedPoiCount: number | null;
+  addedPoiCount: number | null;
+  warningCount: number;
+  categoryCount: number | null;
+  mode: StarMode;
+  centerLabel: string;
+  centerCoordinate: string;
+  radiusRangeLabel: string;
+  searchStrategy: SearchStrategy;
+  angleToleranceDeg: number;
+  candidatesPerSlot: number;
+  rotationStepDeg: number;
+  hexCellRadiusKm: number;
+  animationLabel: string;
+  magicSpeed: number;
+  notes: string[];
+}
+
+export interface CalculationRecord {
+  id: string;
+  status: "completed" | "empty" | "cancelled" | "failed";
+  sourceLabel: string;
+  title: string;
+  message: string;
+  startedAtIso: string;
+  finishedAtIso: string;
+  totalElapsedMs: number;
+  summary: DrawSummary | null;
 }

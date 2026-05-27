@@ -1,45 +1,7 @@
-import type { SearchStrategy, StarMode } from "../types";
-import type { MagicSpeed } from "../lib/magicCircle";
+import type { DrawSummary, SearchStrategy } from "../types";
 import { starModeLabel } from "../lib/starPatterns";
 import { formatClockTime, formatElapsedMs } from "../lib/timeFormat";
 import { ResultMetric } from "./ResultMetric";
-
-export type DrawSummary = {
-  id: string;
-  sourceLabel: string;
-  startedAtIso: string;
-  finishedAtIso: string;
-  firstResultAtIso: string | null;
-  firstResultElapsedMs: number | null;
-  firstResultSourceLabel: string | null;
-  totalElapsedMs: number;
-  searchElapsedMs: number | null;
-  solveElapsedMs: number;
-  previewSolveCount: number;
-  previewSolveElapsedMs: number;
-  renderElapsedMs: number;
-  estimatedAnimationMs: number | null;
-  resultCount: number;
-  resultLimit: number;
-  eligiblePoiCount: number;
-  totalPoiCount: number;
-  fetchedPoiCount: number | null;
-  addedPoiCount: number | null;
-  warningCount: number;
-  categoryCount: number | null;
-  mode: StarMode;
-  centerLabel: string;
-  centerCoordinate: string;
-  radiusRangeLabel: string;
-  searchStrategy: SearchStrategy;
-  angleToleranceDeg: number;
-  candidatesPerSlot: number;
-  rotationStepDeg: number;
-  hexCellRadiusKm: number;
-  animationLabel: string;
-  magicSpeed: MagicSpeed;
-  notes: string[];
-};
 
 export const getSearchStrategyLabel = ({
   searchStrategy,

@@ -31,12 +31,12 @@ import {
   Star,
   Sun,
   Trash2,
+  Upload,
   UserRound
 } from "lucide-react";
 import {
   DrawSummaryDetails,
-  getSearchStrategyLabel,
-  type DrawSummary
+  getSearchStrategyLabel
 } from "./components/DrawSummaryDetails";
 import { MarqueeSelect } from "./components/MarqueeSelect";
 import { PlaceCandidateList } from "./components/PlaceCandidateList";
@@ -52,9 +52,11 @@ import { SelectedPoiDetail } from "./components/SelectedPoiDetail";
 import { POI_CATEGORIES } from "./data/categories";
 import { exportGpx, exportKml, splitFavorites } from "./lib/exporters";
 import {
+  createFavoritesArchive,
   makePoiFavorite,
   makeStarFavorite,
   loadFavorites,
+  parseFavoritesArchive,
   saveFavorites
 } from "./lib/favorites";
 import {
@@ -100,10 +102,18 @@ import {
 import { searchPlaces } from "./lib/placeSearch";
 import {
   DEFAULT_APP_SETTINGS,
+  DEFAULT_MAGIC_DRAW_VARIANTS,
   loadSettings,
   saveSettings,
+  type AppSettings,
   type MapLayerId
 } from "./lib/settings";
+import {
+  createSearchSessionArchive,
+  loadSearchSession,
+  parseSearchSessionArchive,
+  saveSearchSession
+} from "./lib/searchSession";
 import {
   maxAngleToleranceForMode,
   starModeLabel
@@ -116,8 +126,14 @@ import {
 } from "./lib/solver";
 import { makeAutomaticStarName } from "./lib/starNaming";
 import type {
+  CalculationRecord,
+  DrawSummary,
   FavoriteItem,
   LatLng,
+  MagicDrawShape,
+  MagicPlayback,
+  MagicPlaybackDirection,
+  MagicPlaybackMode,
   PlaceSearchResult,
   Poi,
   SearchStrategy,
@@ -126,14 +142,6 @@ import type {
   StarResult
 } from "./types";
 
-type MagicPlaybackMode = "single" | "continuous" | "loop-all" | "loop-one";
-type MagicDrawShape =
-  | "star"
-  | "cross"
-  | "bagua"
-  | "rose"
-  | "sierpinski"
-  | "zodiac";
 type MagicDrawVariantOption = {
   id: string;
   label: string;
@@ -149,7 +157,6 @@ type MobileSettingsTab =
   | "results"
   | "favorites";
 
-const DEFAULT_CENTER: LatLng = { lat: 25.033964, lng: 121.564468 };
 const MAX_RENDERED_POIS = 350;
 const MAX_RADIUS_KM = 30;
 const MAX_STAR_RESULTS = 50;
@@ -223,15 +230,6 @@ const MAGIC_DRAW_VARIANT_OPTIONS = {
     })
   )
 } satisfies Record<MagicDrawShape, MagicDrawVariantOption[]>;
-const DEFAULT_MAGIC_DRAW_VARIANTS = {
-  star: "5",
-  cross: "4",
-  bagua: "8",
-  rose: "k-7",
-  sierpinski: "d-3",
-  zodiac: "1"
-} satisfies Record<MagicDrawShape, string>;
-
 const MOBILE_SETTINGS_TABS = [
   { id: "search", label: "搜索中心" },
   { id: "categories", label: "目標類別" },
@@ -263,8 +261,6 @@ const CATEGORY_GROUPS = CATEGORY_GROUP_ORDER.map((group) => ({
   categories: POI_CATEGORIES.filter((category) => category.group === group)
 })).filter(({ categories }) => categories.length > 0);
 
-type MagicPlayback = "playing" | "paused" | "ended";
-type MagicPlaybackDirection = "forward" | "reverse";
 type MagicSymbolStroke = Extract<MagicCircleStroke, { kind: "symbol" }>;
 type MagicSelectTouchState = {
   startY: number;
@@ -324,17 +320,6 @@ type HoneycombPreviewParams = {
 type HoneycombSearchBatchParams = HoneycombPreviewParams & {
   initialCellCount: number;
   cellsPerBatch: number;
-};
-type CalculationRecord = {
-  id: string;
-  status: "completed" | "empty" | "cancelled" | "failed";
-  sourceLabel: string;
-  title: string;
-  message: string;
-  startedAtIso: string;
-  finishedAtIso: string;
-  totalElapsedMs: number;
-  summary: DrawSummary | null;
 };
 type CompletionNotice = {
   id: string;
@@ -779,6 +764,16 @@ const downloadText = (filename: string, content: string, type: string) => {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+};
+
+const getExportDateStamp = () => new Date().toISOString().slice(0, 10);
+
+const downloadJson = (filename: string, value: unknown) => {
+  downloadText(
+    filename,
+    JSON.stringify(value, null, 2),
+    "application/json;charset=utf-8"
+  );
 };
 
 const formatMagicSpeed = (speed: MagicSpeed) => `${speed}x`;
@@ -1271,6 +1266,8 @@ function App() {
   const sidebarRef = useRef<HTMLElement | null>(null);
   const magicPlayerRef = useRef<HTMLElement | null>(null);
   const magicDrawActionsRef = useRef<HTMLElement | null>(null);
+  const searchSessionImportInputRef = useRef<HTMLInputElement | null>(null);
+  const favoritesImportInputRef = useRef<HTMLInputElement | null>(null);
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
@@ -1283,18 +1280,43 @@ function App() {
   const [initialSettings] = useState(() =>
     typeof window === "undefined" ? DEFAULT_APP_SETTINGS : loadSettings()
   );
+  const [initialSearchSession] = useState(() =>
+    typeof window === "undefined" ? null : loadSearchSession()
+  );
   const [initialLastStar] = useState(() =>
-    typeof window === "undefined" ? null : loadLastStar()
+    typeof window === "undefined" || initialSearchSession ? null : loadLastStar()
   );
-
-  const [center, setCenter] = useState<LatLng>(
-    initialLastStar?.center ?? DEFAULT_CENTER
-  );
-  const [centerName, setCenterName] = useState(
+  const initialResults =
+    initialSearchSession?.results ?? (initialLastStar ? [initialLastStar] : []);
+  const initialSelectedResultIndex =
+    initialResults.length > 0
+      ? Math.min(
+          initialSearchSession?.selectedResultIndex ?? 0,
+          initialResults.length - 1
+        )
+      : 0;
+  const initialCenter =
+    initialSearchSession?.center ??
+    initialLastStar?.center ??
+    initialSettings.center;
+  const initialCenterName =
+    initialSearchSession?.centerName ??
     initialLastStar?.name ??
-      formatCoordinate(initialLastStar?.center ?? DEFAULT_CENTER)
+    initialSettings.centerName ??
+    formatCoordinate(initialCenter);
+  const initialStarMode =
+    initialResults[initialSelectedResultIndex]?.mode ??
+    initialSettings.starMode;
+  const initialMagicDrawShape =
+    initialSearchSession || !initialLastStar
+      ? initialSettings.magicDrawShape
+      : getMagicDrawShapeForMode(initialStarMode);
+
+  const [center, setCenter] = useState<LatLng>(initialCenter);
+  const [centerName, setCenterName] = useState(initialCenterName);
+  const [searchText, setSearchText] = useState(
+    initialSearchSession?.searchText ?? initialSettings.searchText
   );
-  const [searchText, setSearchText] = useState("");
   const [placeCandidates, setPlaceCandidates] = useState<PlaceSearchResult[]>(
     []
   );
@@ -1308,9 +1330,7 @@ function App() {
   const [outerRadiusKm, setOuterRadiusKm] = useState(
     initialSettings.outerRadiusKm
   );
-  const [starMode, setStarMode] = useState<StarMode>(
-    initialLastStar?.mode ?? initialSettings.starMode
-  );
+  const [starMode, setStarMode] = useState<StarMode>(initialStarMode);
   const [angleToleranceDeg, setAngleToleranceDeg] = useState(
     initialSettings.angleToleranceDeg
   );
@@ -1350,11 +1370,13 @@ function App() {
   const [expandedDesktopSections, setExpandedDesktopSections] = useState<
     Record<MobileSettingsTab, boolean>
   >(DEFAULT_DESKTOP_SECTION_EXPANSION);
-  const [pois, setPois] = useState<Poi[]>([]);
+  const [pois, setPois] = useState<Poi[]>(initialSearchSession?.pois ?? []);
   const [results, setResults] = useState<StarResult[]>(
-    initialLastStar ? [initialLastStar] : []
+    initialResults
   );
-  const [selectedResultIndex, setSelectedResultIndex] = useState(0);
+  const [selectedResultIndex, setSelectedResultIndex] = useState(
+    initialSelectedResultIndex
+  );
   const [starResultSort, setStarResultSort] =
     useState<StarResultSortKey>("score");
   const [starResultSortDirection, setStarResultSortDirection] =
@@ -1364,27 +1386,32 @@ function App() {
     null
   );
   const [selectedPoi, setSelectedPoi] = useState<Poi | null>(null);
-  const [magicAnimationIndex, setMagicAnimationIndex] = useState(0);
+  const [magicAnimationIndex, setMagicAnimationIndex] = useState(
+    initialSettings.magicAnimationIndex
+  );
   const [magicDrawShape, setMagicDrawShape] = useState<MagicDrawShape>(() =>
-    getMagicDrawShapeForMode(initialLastStar?.mode ?? initialSettings.starMode)
+    initialMagicDrawShape
   );
   const [magicDrawVariantByShape, setMagicDrawVariantByShape] = useState<
     Record<MagicDrawShape, string>
-  >(() =>
-    makeInitialMagicDrawVariants(
-      initialLastStar?.mode ?? initialSettings.starMode
-    )
-  );
+  >(() => ({
+    ...makeInitialMagicDrawVariants(initialStarMode),
+    ...initialSettings.magicDrawVariantByShape
+  }));
   const [magicPlayback, setMagicPlayback] =
-    useState<MagicPlayback>("playing");
-  const magicPlaybackRef = useRef<MagicPlayback>("playing");
+    useState<MagicPlayback>(initialSettings.magicPlayback);
+  const magicPlaybackRef = useRef<MagicPlayback>(initialSettings.magicPlayback);
   const [magicDirection, setMagicDirection] =
-    useState<MagicPlaybackDirection>("forward");
-  const magicDirectionRef = useRef<MagicPlaybackDirection>("forward");
-  const [magicSpeed, setMagicSpeed] = useState<MagicSpeed>(1);
-  const magicSpeedRef = useRef<MagicSpeed>(1);
+    useState<MagicPlaybackDirection>(initialSettings.magicDirection);
+  const magicDirectionRef = useRef<MagicPlaybackDirection>(
+    initialSettings.magicDirection
+  );
+  const [magicSpeed, setMagicSpeed] = useState<MagicSpeed>(
+    initialSettings.magicSpeed
+  );
+  const magicSpeedRef = useRef<MagicSpeed>(initialSettings.magicSpeed);
   const [magicPlaybackMode, setMagicPlaybackMode] =
-    useState<MagicPlaybackMode>("continuous");
+    useState<MagicPlaybackMode>(initialSettings.magicPlaybackMode);
   const [magicReplayKey, setMagicReplayKey] = useState(0);
   const [favorites, setFavorites] = useState<FavoriteItem[]>(() =>
     typeof window === "undefined" ? [] : loadFavorites()
@@ -1407,6 +1434,8 @@ function App() {
   const placeSearchAbortControllerRef = useRef<AbortController | null>(null);
   const placeSearchRequestIdRef = useRef(0);
   const searchAbortControllerRef = useRef<AbortController | null>(null);
+  const skipNextAutoSolveOnceRef = useRef(false);
+  const preserveNextMagicSelectionRef = useRef(initialResults.length > 0);
   const isMagicCenterLockedRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [isSearchDrawing, setIsSearchDrawing] = useState(false);
@@ -1418,7 +1447,7 @@ function App() {
     useState<number | null>(null);
   const [calculationRecords, setCalculationRecords] = useState<
     CalculationRecord[]
-  >([]);
+  >(initialSearchSession?.calculationRecords ?? []);
   const [mobileMapSplitPercent, setMobileMapSplitPercent] = useState(50);
   const [mobileSettingsSwipeOffsetPx, setMobileSettingsSwipeOffsetPx] =
     useState(0);
@@ -1430,7 +1459,9 @@ function App() {
       : window.matchMedia("(max-width: 900px)").matches
   );
   const [status, setStatus] = useState(
-    initialLastStar
+    initialSearchSession
+      ? `已恢復上次搜尋資料：${initialSearchSession.results.length} 組結果、${initialSearchSession.pois.length} 筆座標。`
+      : initialLastStar
       ? `已載入上次暫存的${getStarModeLabel(initialLastStar.mode)}魔法陣。`
       : "點擊地圖、搜尋地標或輸入座標來放置中心。"
   );
@@ -1634,6 +1665,62 @@ function App() {
       rotationStepDeg,
       searchStrategy,
       starMode
+    ]
+  );
+  const currentAppSettings = useMemo<AppSettings>(
+    () => ({
+      center,
+      centerName,
+      searchText,
+      innerRadiusKm,
+      outerRadiusKm,
+      starMode,
+      angleToleranceDeg: effectiveAngleToleranceDeg,
+      candidatesPerSlot,
+      rotationStepDeg,
+      searchStrategy,
+      hexCellRadiusKm,
+      showSectors,
+      showHoneycomb,
+      selectedCategoryIds,
+      selectedCategoryGroups,
+      categoryGroupSelectionSnapshots,
+      magicDrawShape,
+      magicDrawVariantByShape,
+      magicPlayback,
+      magicDirection,
+      magicSpeed,
+      magicPlaybackMode,
+      magicAnimationIndex,
+      theme,
+      mapLayer
+    }),
+    [
+      candidatesPerSlot,
+      categoryGroupSelectionSnapshots,
+      center,
+      centerName,
+      effectiveAngleToleranceDeg,
+      hexCellRadiusKm,
+      innerRadiusKm,
+      magicAnimationIndex,
+      magicDirection,
+      magicDrawShape,
+      magicDrawVariantByShape,
+      magicPlayback,
+      magicPlaybackMode,
+      magicSpeed,
+      mapLayer,
+      outerRadiusKm,
+      rotationStepDeg,
+      searchStrategy,
+      searchText,
+      selectedCategoryIds,
+      selectedCategoryGroups,
+      showHoneycomb,
+      showSectors,
+      starMode,
+      theme
     ]
   );
   const radiusRangeLabel = `${innerRadiusKm}–${outerRadiusKm} km`;
@@ -2745,6 +2832,22 @@ function App() {
 
   useEffect(() => {
     if (!selectedResult) return;
+    if (preserveNextMagicSelectionRef.current) {
+      preserveNextMagicSelectionRef.current = false;
+      const durationMs = setMagicTimeline(
+        selectedResult,
+        magicAnimationIndex,
+        magicDirectionRef.current,
+        0
+      );
+      magicTimelinePositionMsRef.current = getMagicBoundaryPosition(
+        magicDirectionRef.current,
+        durationMs
+      );
+      setMagicReplayKey((key) => key + 1);
+      return;
+    }
+
     setMagicTimeline(selectedResult, magicAnimationIndex, "forward", 0);
     setMagicDirectionState("forward");
     setMagicPlaybackState("playing");
@@ -2815,39 +2918,29 @@ function App() {
   ]);
 
   useEffect(() => {
-    saveSettings({
-      innerRadiusKm,
-      outerRadiusKm,
-      starMode,
-      angleToleranceDeg: effectiveAngleToleranceDeg,
-      candidatesPerSlot,
-      rotationStepDeg,
-      searchStrategy,
-      hexCellRadiusKm,
-      showSectors,
-      showHoneycomb,
-      selectedCategoryIds,
-      selectedCategoryGroups,
-      categoryGroupSelectionSnapshots,
-      theme,
-      mapLayer
+    saveSettings(currentAppSettings);
+  }, [currentAppSettings]);
+
+  useEffect(() => {
+    saveSearchSession({
+      center,
+      centerName,
+      searchText,
+      pois,
+      results,
+      calculationRecords,
+      selectedResultIndex,
+      settings: currentAppSettings
     });
   }, [
-    candidatesPerSlot,
-    categoryGroupSelectionSnapshots,
-    effectiveAngleToleranceDeg,
-    hexCellRadiusKm,
-    innerRadiusKm,
-    outerRadiusKm,
-    rotationStepDeg,
-    searchStrategy,
-    selectedCategoryIds,
-    selectedCategoryGroups,
-    showHoneycomb,
-    showSectors,
-    starMode,
-    theme,
-    mapLayer
+    calculationRecords,
+    center,
+    centerName,
+    currentAppSettings,
+    pois,
+    results,
+    searchText,
+    selectedResultIndex
   ]);
 
   useEffect(() => {
@@ -3151,6 +3244,11 @@ function App() {
 
   useEffect(() => {
     if (isSearchDrawing) return;
+
+    if (skipNextAutoSolveOnceRef.current) {
+      skipNextAutoSolveOnceRef.current = false;
+      return;
+    }
 
     if (skipNextAutoSolveRef.current) {
       const shouldSkip = skipNextAutoSolveRef.current === autoSolveKey;
@@ -4036,6 +4134,172 @@ function App() {
     );
   };
 
+  const exportSearchSessionJson = () => {
+    if (isSearchDrawing) {
+      setStatus("搜索繪製進行中，請完成或取消後再匯出搜尋資料。");
+      return;
+    }
+
+    if (
+      pois.length === 0 &&
+      results.length === 0 &&
+      calculationRecords.length === 0
+    ) {
+      setError("目前沒有可匯出的搜尋座標、計算紀錄或繪圖結果。");
+      return;
+    }
+
+    downloadJson(
+      `mapping-star-search-${getExportDateStamp()}.json`,
+      createSearchSessionArchive({
+        center,
+        centerName,
+        searchText,
+        pois,
+        results,
+        calculationRecords,
+        selectedResultIndex,
+        settings: currentAppSettings
+      })
+    );
+    setStatus("已匯出搜尋座標、計算紀錄與繪圖結果 JSON。");
+    setError("");
+  };
+
+  const applyAppSettings = (settings: AppSettings) => {
+    setCenter(settings.center);
+    setCenterName(settings.centerName);
+    setSearchText(settings.searchText);
+    setInnerRadiusKm(settings.innerRadiusKm);
+    setOuterRadiusKm(settings.outerRadiusKm);
+    setStarMode(settings.starMode);
+    setAngleToleranceDeg(settings.angleToleranceDeg);
+    setCandidatesPerSlot(settings.candidatesPerSlot);
+    setRotationStepDeg(settings.rotationStepDeg);
+    setSearchStrategy(settings.searchStrategy);
+    setHexCellRadiusKm(settings.hexCellRadiusKm);
+    setShowSectors(settings.showSectors);
+    setShowHoneycomb(settings.showHoneycomb);
+    setSelectedCategoryIds(settings.selectedCategoryIds);
+    setSelectedCategoryGroups(settings.selectedCategoryGroups);
+    setCategoryGroupSelectionSnapshots(
+      settings.categoryGroupSelectionSnapshots
+    );
+    setMagicDrawShape(settings.magicDrawShape);
+    setMagicDrawVariantByShape({
+      ...DEFAULT_MAGIC_DRAW_VARIANTS,
+      ...settings.magicDrawVariantByShape
+    });
+    setMagicPlaybackState(settings.magicPlayback);
+    setMagicDirectionState(settings.magicDirection);
+    setMagicSpeedState(settings.magicSpeed);
+    setMagicPlaybackMode(settings.magicPlaybackMode);
+    setMagicAnimationIndex(settings.magicAnimationIndex);
+    setTheme(settings.theme);
+    setMapLayer(settings.mapLayer);
+  };
+
+  const importSearchSessionJson = async (file: File) => {
+    if (isSearchDrawing) {
+      setStatus("搜索繪製進行中，請完成或取消後再匯入搜尋資料。");
+      return;
+    }
+
+    try {
+      const archive = parseSearchSessionArchive(await file.text());
+      skipNextAutoSolveOnceRef.current = true;
+      preserveNextMagicSelectionRef.current = archive.results.length > 0;
+
+      if (archive.settings) {
+        applyAppSettings(archive.settings);
+      }
+
+      setCenter(archive.center);
+      setCenterName(archive.centerName);
+      setSearchText(archive.searchText);
+      setPois(archive.pois);
+      setResults(archive.results);
+      setCalculationRecords(archive.calculationRecords);
+      setSelectedResultIndex(archive.selectedResultIndex);
+      setExpandedResultId(null);
+      setExpandedFavoriteId(null);
+      setSelectedPoi(null);
+      setPlaceCandidates([]);
+      setPlaceCandidateQuery("");
+      setSelectedPlaceCandidateId(null);
+      setError("");
+      setStatus(
+        `已匯入搜尋資料：${archive.results.length} 組結果、${archive.pois.length} 筆座標、${archive.calculationRecords.length} 筆紀錄。`
+      );
+    } catch (importError) {
+      const message =
+        importError instanceof Error ? importError.message : "檔案格式不正確。";
+      setError(`搜尋資料匯入失敗：${message}`);
+    }
+  };
+
+  const handleSearchSessionImportChange = (
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (file) void importSearchSessionJson(file);
+  };
+
+  const exportFavoritesJson = () => {
+    if (areFavoritesLocked) {
+      setStatus("搜索繪製進行中，我的最愛已暫時鎖定。");
+      return;
+    }
+
+    if (favorites.length === 0) {
+      setError("我的最愛目前沒有可匯出的資料。");
+      return;
+    }
+
+    downloadJson(
+      `mapping-star-favorites-${getExportDateStamp()}.json`,
+      createFavoritesArchive(favorites)
+    );
+    setStatus("已匯出我的最愛 JSON。");
+    setError("");
+  };
+
+  const importFavoritesJson = async (file: File) => {
+    if (areFavoritesLocked) {
+      setStatus("搜索繪製進行中，我的最愛已暫時鎖定。");
+      return;
+    }
+
+    try {
+      const archive = parseFavoritesArchive(await file.text());
+      setFavorites((current) => {
+        const importedIds = new Set(
+          archive.favorites.map((favorite) => favorite.id)
+        );
+        return [
+          ...archive.favorites,
+          ...current.filter((favorite) => !importedIds.has(favorite.id))
+        ];
+      });
+      setExpandedFavoriteId(null);
+      setError("");
+      setStatus(`已匯入我的最愛：${archive.favorites.length} 筆。`);
+    } catch (importError) {
+      const message =
+        importError instanceof Error ? importError.message : "檔案格式不正確。";
+      setError(`我的最愛匯入失敗：${message}`);
+    }
+  };
+
+  const handleFavoritesImportChange = (
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (file) void importFavoritesJson(file);
+  };
+
   const magicPlayButtonLabel =
     !selectedResult
       ? "播放"
@@ -4560,6 +4824,31 @@ function App() {
             {loading ? "處理中..." : status}
           </div>
           {error && <div className="error-box">{error}</div>}
+          <div className="download-grid">
+            <button
+              type="button"
+              onClick={exportSearchSessionJson}
+              disabled={isSearchDrawing}
+            >
+              <Download size={16} />
+              搜尋 JSON
+            </button>
+            <button
+              type="button"
+              onClick={() => searchSessionImportInputRef.current?.click()}
+              disabled={isSearchDrawing}
+            >
+              <Upload size={16} />
+              匯入搜尋
+            </button>
+          </div>
+          <input
+            ref={searchSessionImportInputRef}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            onChange={handleSearchSessionImportChange}
+          />
           {calculationRecords.length === 0 ? (
             <p className="muted">
               尚無計算紀錄。執行搜索繪製或自動計算後會保留每一次結果。
@@ -4914,6 +5203,22 @@ function App() {
           <div className="download-grid">
             <button
               type="button"
+              onClick={exportFavoritesJson}
+              disabled={areFavoritesLocked}
+            >
+              <Download size={16} />
+              收藏 JSON
+            </button>
+            <button
+              type="button"
+              onClick={() => favoritesImportInputRef.current?.click()}
+              disabled={areFavoritesLocked}
+            >
+              <Upload size={16} />
+              匯入收藏
+            </button>
+            <button
+              type="button"
               onClick={() => exportFavorites("gpx")}
               disabled={areFavoritesLocked}
             >
@@ -4929,6 +5234,13 @@ function App() {
               收藏 KML
             </button>
           </div>
+          <input
+            ref={favoritesImportInputRef}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            onChange={handleFavoritesImportChange}
+          />
         </section>
 
         <section className="panel about-panel mobile-about-panel">

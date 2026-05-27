@@ -1,5 +1,18 @@
 import { DEFAULT_CATEGORY_IDS, POI_CATEGORIES } from "../data/categories";
-import type { SearchStrategy, StarMode } from "../types";
+import {
+  MAGIC_ANIMATION_COUNT,
+  MAGIC_SPEED_OPTIONS,
+  type MagicSpeed
+} from "./magicCircle";
+import type {
+  LatLng,
+  MagicDrawShape,
+  MagicPlayback,
+  MagicPlaybackDirection,
+  MagicPlaybackMode,
+  SearchStrategy,
+  StarMode
+} from "../types";
 import { isStarMode, maxAngleToleranceForMode } from "./starPatterns";
 
 export const SETTINGS_STORAGE_KEY = "mapping-star:settings";
@@ -8,6 +21,9 @@ export type ThemeMode = "light" | "dark";
 export type MapLayerId = "street" | "terrain" | "satellite";
 
 export interface AppSettings {
+  center: LatLng;
+  centerName: string;
+  searchText: string;
   innerRadiusKm: number;
   outerRadiusKm: number;
   starMode: StarMode;
@@ -21,11 +37,32 @@ export interface AppSettings {
   selectedCategoryIds: string[];
   selectedCategoryGroups: string[];
   categoryGroupSelectionSnapshots: Record<string, string[]>;
+  magicDrawShape: MagicDrawShape;
+  magicDrawVariantByShape: Record<MagicDrawShape, string>;
+  magicPlayback: MagicPlayback;
+  magicDirection: MagicPlaybackDirection;
+  magicSpeed: MagicSpeed;
+  magicPlaybackMode: MagicPlaybackMode;
+  magicAnimationIndex: number;
   theme: ThemeMode;
   mapLayer: MapLayerId;
 }
 
+export const DEFAULT_CENTER: LatLng = { lat: 25.033964, lng: 121.564468 };
+
+export const DEFAULT_MAGIC_DRAW_VARIANTS = {
+  star: "5",
+  cross: "4",
+  bagua: "8",
+  rose: "k-7",
+  sierpinski: "d-3",
+  zodiac: "1"
+} satisfies Record<MagicDrawShape, string>;
+
 export const DEFAULT_APP_SETTINGS: AppSettings = {
+  center: DEFAULT_CENTER,
+  centerName: "25.033964, 121.564468",
+  searchText: "",
   innerRadiusKm: 4,
   outerRadiusKm: 6,
   starMode: 5,
@@ -39,6 +76,13 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   selectedCategoryIds: DEFAULT_CATEGORY_IDS,
   selectedCategoryGroups: [],
   categoryGroupSelectionSnapshots: {},
+  magicDrawShape: "star",
+  magicDrawVariantByShape: DEFAULT_MAGIC_DRAW_VARIANTS,
+  magicPlayback: "playing",
+  magicDirection: "forward",
+  magicSpeed: 1,
+  magicPlaybackMode: "continuous",
+  magicAnimationIndex: 0,
   theme: "light",
   mapLayer: "street"
 };
@@ -99,6 +143,86 @@ const parseMapLayer = (value: unknown): MapLayerId =>
   value === "street" || value === "terrain" || value === "satellite"
     ? value
     : DEFAULT_APP_SETTINGS.mapLayer;
+
+const parseLatLng = (value: unknown): LatLng => {
+  if (!value || typeof value !== "object") return DEFAULT_APP_SETTINGS.center;
+  const candidate = value as Partial<LatLng>;
+  const lat = toFiniteNumber(candidate.lat);
+  const lng = toFiniteNumber(candidate.lng);
+
+  return lat !== null &&
+    lng !== null &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180
+    ? { lat, lng }
+    : DEFAULT_APP_SETTINGS.center;
+};
+
+const parseText = (value: unknown, fallback = "") =>
+  typeof value === "string" ? value : fallback;
+
+const MAGIC_DRAW_SHAPES = [
+  "star",
+  "cross",
+  "bagua",
+  "rose",
+  "sierpinski",
+  "zodiac"
+] satisfies MagicDrawShape[];
+
+const parseMagicDrawShape = (value: unknown): MagicDrawShape =>
+  typeof value === "string" &&
+  MAGIC_DRAW_SHAPES.includes(value as MagicDrawShape)
+    ? (value as MagicDrawShape)
+    : DEFAULT_APP_SETTINGS.magicDrawShape;
+
+const parseMagicDrawVariantByShape = (
+  value: unknown
+): Record<MagicDrawShape, string> => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return DEFAULT_MAGIC_DRAW_VARIANTS;
+  }
+
+  const source = value as Record<string, unknown>;
+  return MAGIC_DRAW_SHAPES.reduce(
+    (variants, shape) => ({
+      ...variants,
+      [shape]:
+        typeof source[shape] === "string"
+          ? source[shape]
+          : DEFAULT_MAGIC_DRAW_VARIANTS[shape]
+    }),
+    {} as Record<MagicDrawShape, string>
+  );
+};
+
+const parseMagicPlayback = (value: unknown): MagicPlayback =>
+  value === "playing" || value === "paused" || value === "ended"
+    ? value
+    : DEFAULT_APP_SETTINGS.magicPlayback;
+
+const parseMagicDirection = (value: unknown): MagicPlaybackDirection =>
+  value === "forward" || value === "reverse"
+    ? value
+    : DEFAULT_APP_SETTINGS.magicDirection;
+
+const parseMagicPlaybackMode = (value: unknown): MagicPlaybackMode =>
+  value === "single" ||
+  value === "continuous" ||
+  value === "loop-all" ||
+  value === "loop-one"
+    ? value
+    : DEFAULT_APP_SETTINGS.magicPlaybackMode;
+
+const parseMagicSpeed = (value: unknown): MagicSpeed => {
+  const numberValue = toFiniteNumber(value);
+  return (
+    MAGIC_SPEED_OPTIONS.find((speed) => speed === numberValue) ??
+    DEFAULT_APP_SETTINGS.magicSpeed
+  );
+};
 
 const CATEGORY_GROUPS = [
   ...new Set(POI_CATEGORIES.map((category) => category.group))
@@ -238,6 +362,9 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     );
 
   return {
+    center: parseLatLng(source.center),
+    centerName: parseText(source.centerName, DEFAULT_APP_SETTINGS.centerName),
+    searchText: parseText(source.searchText),
     innerRadiusKm,
     outerRadiusKm,
     starMode,
@@ -281,6 +408,20 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     ),
     selectedCategoryGroups,
     categoryGroupSelectionSnapshots,
+    magicDrawShape: parseMagicDrawShape(source.magicDrawShape),
+    magicDrawVariantByShape: parseMagicDrawVariantByShape(
+      source.magicDrawVariantByShape
+    ),
+    magicPlayback: parseMagicPlayback(source.magicPlayback),
+    magicDirection: parseMagicDirection(source.magicDirection),
+    magicSpeed: parseMagicSpeed(source.magicSpeed),
+    magicPlaybackMode: parseMagicPlaybackMode(source.magicPlaybackMode),
+    magicAnimationIndex: clampNumber(
+      source.magicAnimationIndex,
+      0,
+      MAGIC_ANIMATION_COUNT - 1,
+      DEFAULT_APP_SETTINGS.magicAnimationIndex
+    ),
     theme: parseTheme(source.theme),
     mapLayer: parseMapLayer(source.mapLayer)
   };

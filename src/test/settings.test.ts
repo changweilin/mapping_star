@@ -37,6 +37,13 @@ describe("settings helpers", () => {
     expect(DEFAULT_APP_SETTINGS.searchStrategy).toBe("honeycomb");
     expect(DEFAULT_APP_SETTINGS.hexCellRadiusKm).toBe(0.5);
     expect(DEFAULT_APP_SETTINGS.showHoneycomb).toBe(false);
+    expect(DEFAULT_APP_SETTINGS.center).toEqual({
+      lat: 25.033964,
+      lng: 121.564468
+    });
+    expect(DEFAULT_APP_SETTINGS.magicDrawShape).toBe("star");
+    expect(DEFAULT_APP_SETTINGS.magicPlaybackMode).toBe("continuous");
+    expect(DEFAULT_APP_SETTINGS.magicSpeed).toBe(1);
   });
 
   it("migrates legacy persisted solver defaults to the current defaults", () => {
@@ -97,6 +104,16 @@ describe("settings helpers", () => {
       selectedCategoryIds: ["religion", "missing", "station", "station"],
       selectedCategoryGroups: ["missing"],
       categoryGroupSelectionSnapshots: { missing: ["station"] },
+      center: { lat: 120, lng: 240 },
+      centerName: 123,
+      searchText: "台北龍山寺",
+      magicDrawShape: "missing",
+      magicDrawVariantByShape: { star: "8", missing: "x" },
+      magicPlayback: "stopped",
+      magicDirection: "sideways",
+      magicSpeed: 3,
+      magicPlaybackMode: "shuffle",
+      magicAnimationIndex: 999,
       theme: "dark",
       mapLayer: "satellite"
     });
@@ -114,6 +131,16 @@ describe("settings helpers", () => {
     expect(settings.selectedCategoryIds).toEqual(["religion", "station"]);
     expect(settings.selectedCategoryGroups).toEqual([]);
     expect(settings.categoryGroupSelectionSnapshots).toEqual({});
+    expect(settings.center).toEqual(DEFAULT_APP_SETTINGS.center);
+    expect(settings.centerName).toBe(DEFAULT_APP_SETTINGS.centerName);
+    expect(settings.searchText).toBe("台北龍山寺");
+    expect(settings.magicDrawShape).toBe("star");
+    expect(settings.magicDrawVariantByShape.star).toBe("8");
+    expect(settings.magicPlayback).toBe("playing");
+    expect(settings.magicDirection).toBe("forward");
+    expect(settings.magicSpeed).toBe(1);
+    expect(settings.magicPlaybackMode).toBe("continuous");
+    expect(settings.magicAnimationIndex).toBeGreaterThan(0);
     expect(settings.theme).toBe("dark");
     expect(settings.mapLayer).toBe("satellite");
   });
@@ -203,6 +230,19 @@ describe("settings helpers", () => {
       selectedCategoryIds: ["religion", "station"],
       selectedCategoryGroups: [],
       categoryGroupSelectionSnapshots: {},
+      center: { lat: 24.123, lng: 121.456 },
+      centerName: "測試中心",
+      searchText: "測試搜尋",
+      magicDrawShape: "rose",
+      magicDrawVariantByShape: {
+        ...DEFAULT_APP_SETTINGS.magicDrawVariantByShape,
+        rose: "k-9"
+      },
+      magicPlayback: "paused",
+      magicDirection: "reverse",
+      magicSpeed: 2,
+      magicPlaybackMode: "loop-one",
+      magicAnimationIndex: 3,
       theme: "dark",
       mapLayer: "terrain"
     });
@@ -217,6 +257,16 @@ describe("settings helpers", () => {
     expect(loaded.selectedCategoryIds).toEqual(["religion", "station"]);
     expect(loaded.selectedCategoryGroups).toEqual([]);
     expect(loaded.categoryGroupSelectionSnapshots).toEqual({});
+    expect(loaded.center).toEqual({ lat: 24.123, lng: 121.456 });
+    expect(loaded.centerName).toBe("測試中心");
+    expect(loaded.searchText).toBe("測試搜尋");
+    expect(loaded.magicDrawShape).toBe("rose");
+    expect(loaded.magicDrawVariantByShape.rose).toBe("k-9");
+    expect(loaded.magicPlayback).toBe("paused");
+    expect(loaded.magicDirection).toBe("reverse");
+    expect(loaded.magicSpeed).toBe(2);
+    expect(loaded.magicPlaybackMode).toBe("loop-one");
+    expect(loaded.magicAnimationIndex).toBe(3);
     expect(loaded.theme).toBe("dark");
     expect(loaded.mapLayer).toBe("terrain");
   });
