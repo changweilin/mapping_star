@@ -2181,6 +2181,27 @@ a {
   margin-right: 4px;
 }
 
+.leaflet-bottom.leaflet-right {
+  right: 4px;
+  bottom: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+}
+
+.leaflet-bottom.leaflet-right .leaflet-control {
+  margin: 0;
+}
+
+.leaflet-bottom.leaflet-right .leaflet-control-zoom {
+  order: 1;
+}
+
+.leaflet-bottom.leaflet-right .leaflet-control-attribution {
+  order: 2;
+}
+
 .leaflet-control-attribution {
   max-width: min(280px, 58vw);
   padding: 1px 4px !important;

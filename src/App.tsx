@@ -1847,6 +1847,9 @@ function App() {
   };
   const handlePoiSelect = useCallback((poi: Poi) => {
     setSelectedPoi(poi);
+  }, []);
+  const handleMagicTargetSelect = useCallback((poi: Poi) => {
+    setSelectedPoi(poi);
     setShowMagicTargetLabels((current) => !current);
   }, []);
   const handlePoiRenderToggle = () => {
@@ -2830,6 +2833,13 @@ function App() {
     poiLayerRef.current = L.layerGroup().addTo(map);
     starLayerRef.current = L.layerGroup().addTo(map);
     map.on("click", (event: L.LeafletMouseEvent) => {
+      const clickTarget = event.originalEvent.target;
+      if (
+        clickTarget instanceof Element &&
+        clickTarget.closest(".star-point, .star-label")
+      ) {
+        return;
+      }
       if (blockMagicCenterMoveIfLocked()) return;
 
       const nextCenter = {
@@ -3235,6 +3245,16 @@ function App() {
     });
 
     selectedResult.points.forEach((poi, index) => {
+      const handleTargetClick = (event: L.LeafletMouseEvent) => {
+        if (event.originalEvent) {
+          L.DomEvent.stop(event.originalEvent);
+        }
+        handleMagicTargetSelect(poi);
+      };
+      const handleTargetLabelClick = (event: Event) => {
+        L.DomEvent.stop(event);
+        handleMagicTargetSelect(poi);
+      };
       const marker = L.circleMarker([poi.lat, poi.lng], {
         radius: magicGeometryPattern === "combined" ? 14 : 12,
         color: magicElement.accent,
@@ -3254,11 +3274,18 @@ function App() {
             direction: "bottom",
             offset: [0, 22],
             permanent: true,
+            interactive: true,
             className: "star-label star-label--below"
           }
         );
+        marker.getTooltip()?.on("click", handleTargetClick);
       }
-      marker.on("click", () => handlePoiSelect(poi)).addTo(group);
+      marker.on("click", handleTargetClick).addTo(group);
+      const tooltipElement = marker.getTooltip()?.getElement();
+      if (tooltipElement) {
+        L.DomEvent.disableClickPropagation(tooltipElement);
+        L.DomEvent.on(tooltipElement, "click", handleTargetLabelClick);
+      }
       const markerElement = marker.getElement() as SVGElement | null;
       markerElement?.classList.add("magic-drawable");
       if (markerElement) {
@@ -3281,7 +3308,7 @@ function App() {
     magicGeometryVariantKey,
     magicReplayKey,
     magicSpeed,
-    handlePoiSelect,
+    handleMagicTargetSelect,
     selectedResult,
     showMagicTargetLabels
   ]);
