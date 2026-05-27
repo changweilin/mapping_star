@@ -6,7 +6,7 @@ const FULL_CIRCLE_DEGREES = 360;
 const MIN_MAGIC_RADIUS_METERS = 120;
 const ROSE_CURVE_PETAL_FACTOR = 7;
 const SIERPINSKI_TRIANGLE_DEPTH = 3;
-export const ZODIAC_CONSTELLATION_SCALE = 0.58;
+export const ZODIAC_CONSTELLATION_SCALE = 1;
 
 type MagicLineStyle =
   | "sharp"
@@ -470,6 +470,17 @@ type ZodiacPoint = {
   size?: number;
 };
 
+type MagicTargetPoint = {
+  position: LatLng;
+  bearingDeg: number;
+  sizeScale?: number;
+};
+
+type PlanarPoint = {
+  x: number;
+  y: number;
+};
+
 export type ZodiacConstellation = {
   id: string;
   name: string;
@@ -585,7 +596,7 @@ const makeZodiacConstellation = ({
 export const ZODIAC_CONSTELLATIONS = [
   makeZodiacConstellation({
     id: "aries",
-    name: "白羊座",
+    name: "牡羊座",
     latinName: "Aries",
     skyLines: [
       [[42.496, 27.2605], [31.7934, 23.4624], [28.66, 20.808], [28.3826, 19.2939]]
@@ -669,7 +680,7 @@ export const ZODIAC_CONSTELLATIONS = [
   }),
   makeZodiacConstellation({
     id: "capricornus",
-    name: "摩羯座",
+    name: "魔羯座",
     latinName: "Capricornus",
     skyLines: [
       [[-55.588, -12.5082], [-54.7472, -14.7814], [-52.7849, -17.8137], [-48.4761, -25.2709], [-47.0446, -26.9191], [-38.3332, -22.4113], [-33.2398, -16.1273], [-34.9773, -16.6623], [-39.4383, -16.8345], [-43.5132, -17.2329], [-55.588, -12.5082]]
@@ -915,6 +926,116 @@ const makeSierpinskiTriangleSegments = (
   return buildSegments(top, right, left, depth);
 };
 
+const makePlanarPoint = (radiusScale: number, bearingDeg: number): PlanarPoint => {
+  const bearing = (bearingDeg * Math.PI) / 180;
+  return {
+    x: radiusScale * Math.sin(bearing),
+    y: radiusScale * Math.cos(bearing)
+  };
+};
+
+const makePlanarMidpoint = (
+  first: PlanarPoint,
+  second: PlanarPoint
+): PlanarPoint => ({
+  x: (first.x + second.x) / 2,
+  y: (first.y + second.y) / 2
+});
+
+const makeSierpinskiPlanarSegments = (
+  radiusScale: number,
+  depth: number
+): PlanarPoint[][] => {
+  const [top, right, left] = [0, 1, 2].map((index) =>
+    makePlanarPoint(radiusScale, (FULL_CIRCLE_DEGREES * index) / 3)
+  );
+
+  const buildSegments = (
+    a: PlanarPoint,
+    b: PlanarPoint,
+    c: PlanarPoint,
+    remainingDepth: number
+  ): PlanarPoint[][] => {
+    if (remainingDepth <= 0) return [[a, b, c]];
+
+    const ab = makePlanarMidpoint(a, b);
+    const bc = makePlanarMidpoint(b, c);
+    const ca = makePlanarMidpoint(c, a);
+
+    return [
+      ...buildSegments(a, ab, ca, remainingDepth - 1),
+      ...buildSegments(ab, b, bc, remainingDepth - 1),
+      ...buildSegments(ca, bc, c, remainingDepth - 1)
+    ];
+  };
+
+  return buildSegments(top, right, left, depth);
+};
+
+const makeTargetPoint = (
+  center: LatLng,
+  radiusMeters: number,
+  radiusScale: number,
+  bearingDeg: number,
+  sizeScale?: number
+): MagicTargetPoint => {
+  const normalizedBearing = normalizeDegrees(bearingDeg);
+  return {
+    position: destinationPoint(center, radiusMeters * radiusScale, normalizedBearing),
+    bearingDeg: normalizedBearing,
+    sizeScale
+  };
+};
+
+const makeRoseTargetPoints = (
+  center: LatLng,
+  radiusMeters: number,
+  petalFactor: number,
+  rotationDeg: number
+): MagicTargetPoint[] => {
+  const petalCount = petalFactor % 2 === 0 ? petalFactor * 2 : petalFactor;
+  return Array.from({ length: petalCount }, (_, index) =>
+    makeTargetPoint(
+      center,
+      radiusMeters,
+      0.62,
+      rotationDeg + (FULL_CIRCLE_DEGREES * index) / petalCount
+    )
+  );
+};
+
+const makeSierpinskiTargetPoints = (
+  center: LatLng,
+  radiusMeters: number,
+  depth: number,
+  rotationDeg: number
+): MagicTargetPoint[] => {
+  const vertices = new Map<string, PlanarPoint>();
+  for (const segment of makeSierpinskiPlanarSegments(0.82, depth)) {
+    for (const point of segment) {
+      vertices.set(`${point.x.toFixed(6)},${point.y.toFixed(6)}`, point);
+    }
+  }
+
+  const limit = Math.min(18, Math.max(6, 3 * (depth + 1)));
+  return [...vertices.values()]
+    .sort((a, b) => {
+      const radiusDelta = Math.hypot(b.x, b.y) - Math.hypot(a.x, a.y);
+      if (Math.abs(radiusDelta) > 0.000001) return radiusDelta;
+      return (
+        normalizeDegrees((Math.atan2(a.x, a.y) * 180) / Math.PI) -
+        normalizeDegrees((Math.atan2(b.x, b.y) * 180) / Math.PI)
+      );
+    })
+    .slice(0, limit)
+    .map((point) => {
+      const radiusScale = Math.hypot(point.x, point.y);
+      const bearingDeg =
+        rotationDeg + (Math.atan2(point.x, point.y) * 180) / Math.PI;
+      return makeTargetPoint(center, radiusMeters, radiusScale, bearingDeg);
+    });
+};
+
 const clampInteger = (
   value: number | undefined,
   fallback: number,
@@ -938,7 +1059,7 @@ const makeZodiacPoint = (
   radiusMeters: number,
   point: ZodiacPoint,
   rotationDeg: number
-) => {
+): MagicTargetPoint => {
   const xMeters = point.x * radiusMeters * ZODIAC_CONSTELLATION_SCALE;
   const yMeters = point.y * radiusMeters * ZODIAC_CONSTELLATION_SCALE;
   const distanceMeters = Math.hypot(xMeters, yMeters);
@@ -946,7 +1067,11 @@ const makeZodiacPoint = (
     normalizeDegrees((Math.atan2(xMeters, yMeters) * 180) / Math.PI) +
     rotationDeg;
 
-  return destinationPoint(center, distanceMeters, bearingDeg);
+  return {
+    position: destinationPoint(center, distanceMeters, bearingDeg),
+    bearingDeg: normalizeDegrees(bearingDeg),
+    sizeScale: point.size
+  };
 };
 
 const getDefaultCombinedShape = (mode: StarMode): MagicCombinedShape =>
@@ -1235,6 +1360,52 @@ export const makeMagicCircleStrokes = (
       weight: 0,
       opacity,
       ...schedule(durationMs, advance)
+    });
+  };
+
+  const addEndpointTargetEffects = (
+    idPrefix: string,
+    targetPoints: MagicTargetPoint[],
+    {
+      pointRadiusScale = 0.025,
+      pointOpacity = 0.72,
+      endpointSizePx = 44,
+      endpointOpacity = 1,
+      endpointAdvance = 0.24
+    }: {
+      pointRadiusScale?: number;
+      pointOpacity?: number;
+      endpointSizePx?: number;
+      endpointOpacity?: number;
+      endpointAdvance?: number;
+    } = {}
+  ) => {
+    targetPoints.forEach((target, index) => {
+      const pointScale = target.sizeScale ?? 1;
+      pushCircleAt(
+        `element-point-${idPrefix}-${index}`,
+        target.position,
+        radiusMeters * pointRadiusScale * pointScale,
+        index % 2 === 0 ? element.pale : element.accent,
+        1.05,
+        pointOpacity,
+        420,
+        "magic-circle magic-element-point magic-circle--draw",
+        0.2
+      );
+
+      pushSymbol(
+        `endpoint-symbol-${idPrefix}-${index}`,
+        target.position,
+        "endpoint",
+        element.endpointSymbol,
+        endpointSizePx * Math.max(0.78, Math.min(1.35, pointScale)),
+        index % 2 === 0 ? element.accent : element.primary,
+        endpointOpacity,
+        520,
+        target.bearingDeg,
+        endpointAdvance
+      );
     });
   };
 
@@ -1692,15 +1863,21 @@ export const makeMagicCircleStrokes = (
   pushCircle("middle-ring", 0.77, element.accent, 1.2, 0.48, 760);
   pushCircle("inner-ring", 0.48, element.pale, 1.1, 0.5, 660);
 
+  let standaloneTargetPoints: MagicTargetPoint[] = [];
+  let standaloneTargetPrefix: string = geometryPattern;
+
   if (geometryPattern === "zodiac") {
     const zodiacRotationDeg = phaseDeg + (zodiacConstellation.rotationDeg ?? 0);
-    const zodiacPoints = zodiacConstellation.points.map((point) =>
+    const zodiacTargetPoints = zodiacConstellation.points.map((point) =>
       makeZodiacPoint(result.center, radiusMeters, point, zodiacRotationDeg)
     );
+    const zodiacPoints = zodiacTargetPoints.map((target) => target.position);
+    standaloneTargetPoints = zodiacTargetPoints;
+    standaloneTargetPrefix = `zodiac-${zodiacConstellation.id}`;
 
     pushPolyline(
       `zodiac-frame-${zodiacConstellation.id}`,
-      makePolygonPoints(result.center, radiusMeters * 0.66, 12, phaseDeg),
+      makePolygonPoints(result.center, radiusMeters, 12, phaseDeg),
       "magic-stroke magic-zodiac-frame magic-stroke--draw",
       element.accent,
       1.05,
@@ -1778,6 +1955,15 @@ export const makeMagicCircleStrokes = (
   }
 
   if (geometryPattern === "combined" || geometryPattern === "rose") {
+    if (geometryPattern === "rose") {
+      standaloneTargetPoints = makeRoseTargetPoints(
+        result.center,
+        radiusMeters,
+        rosePetalFactor,
+        phaseDeg
+      );
+    }
+
     pushPolyline(
       "rose-curve",
       makeRoseCurvePoints(
@@ -1796,6 +1982,15 @@ export const makeMagicCircleStrokes = (
   }
 
   if (geometryPattern === "combined" || geometryPattern === "sierpinski") {
+    if (geometryPattern === "sierpinski") {
+      standaloneTargetPoints = makeSierpinskiTargetPoints(
+        result.center,
+        radiusMeters,
+        sierpinskiDepth,
+        phaseDeg
+      );
+    }
+
     makeSierpinskiTriangleSegments(
       result.center,
       radiusMeters * 0.82,
@@ -1816,6 +2011,13 @@ export const makeMagicCircleStrokes = (
   }
 
   if (geometryPattern !== "combined") {
+    addEndpointTargetEffects(standaloneTargetPrefix, standaloneTargetPoints, {
+      endpointSizePx: geometryPattern === "zodiac" ? 36 : 40,
+      pointRadiusScale: geometryPattern === "zodiac" ? 0.016 : 0.023,
+      pointOpacity: geometryPattern === "zodiac" ? 0.82 : 0.74,
+      endpointAdvance: geometryPattern === "zodiac" ? 0.16 : 0.2
+    });
+
     for (let index = 0; index < MAGIC_ANIMATION_COUNT; index += 1) {
       const bearing =
         phaseDeg + (FULL_CIRCLE_DEGREES * index) / MAGIC_ANIMATION_COUNT;

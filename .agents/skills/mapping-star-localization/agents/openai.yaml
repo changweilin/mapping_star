@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mapping Star Localization"
+  short_description: "Translate and localize Mapping Star UI copy."
+  default_prompt: "Use $mapping-star-localization to localize Mapping Star UI copy without breaking keys or behavior."

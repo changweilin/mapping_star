@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mapping Star UI Events"
+  short_description: "Maintain Mapping Star React state and event flows."
+  default_prompt: "Use $mapping-star-ui-events to adjust Mapping Star UI interactions and verify React event behavior."

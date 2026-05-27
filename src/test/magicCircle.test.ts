@@ -181,13 +181,13 @@ describe("magic circle animations", () => {
         strokes.some(
           (stroke) => stroke.kind === "symbol" && stroke.role === "endpoint"
         )
-      ).toBe(false);
+      ).toBe(true);
       expect(
         strokes.filter((stroke) => stroke.id.startsWith("spoke-"))
       ).toHaveLength(0);
       expect(
         strokes.filter((stroke) => stroke.id.startsWith("element-point-"))
-      ).toHaveLength(0);
+      ).not.toHaveLength(0);
       expect(
         strokes.some((stroke) => stroke.id.includes("independent-axis"))
       ).toBe(false);
@@ -220,11 +220,37 @@ describe("magic circle animations", () => {
           stroke.id.startsWith(`zodiac-line-${constellation.id}-`)
         )
       ).toHaveLength(constellation.lines.length);
-      expect(
-        strokes.filter((stroke) =>
-          stroke.id.startsWith(`zodiac-star-${constellation.id}-`)
+      const zodiacStars = strokes.filter((stroke) =>
+        stroke.id.startsWith(`zodiac-star-${constellation.id}-`)
+      );
+      expect(zodiacStars).toHaveLength(constellation.points.length);
+      const zodiacOuterRadiusMeters = Math.max(
+        ...zodiacStars.map((stroke) =>
+          stroke.kind === "circle"
+            ? haversineDistanceMeters(result.center, stroke.center)
+            : 0
         )
-      ).toHaveLength(constellation.points.length);
+      );
+      expect(zodiacOuterRadiusMeters).toBeGreaterThan(
+        result.radiusMeanMeters * 0.99
+      );
+      expect(zodiacOuterRadiusMeters).toBeLessThan(
+        result.radiusMeanMeters * 1.01
+      );
+      const endpointSymbols = strokes.filter(
+        (stroke) => stroke.kind === "symbol" && stroke.role === "endpoint"
+      );
+      expect(endpointSymbols).toHaveLength(constellation.points.length);
+      expect(
+        endpointSymbols.every(
+          (stroke) =>
+            stroke.kind === "symbol" &&
+            stroke.symbol === MAGIC_ELEMENTS[14].endpointSymbol &&
+            stroke.className.includes(
+              `magic-element--${MAGIC_ELEMENTS[14].id}`
+            )
+        )
+      ).toBe(true);
       expect(
         strokes.filter(
           (stroke) =>
@@ -236,11 +262,6 @@ describe("magic circle animations", () => {
         true
       );
       expect(
-        strokes.some(
-          (stroke) => stroke.kind === "symbol" && stroke.role === "endpoint"
-        )
-      ).toBe(false);
-      expect(
         strokes.some((stroke) => stroke.className.includes("star-line"))
       ).toBe(false);
       expect(
@@ -248,7 +269,7 @@ describe("magic circle animations", () => {
       ).toHaveLength(0);
       expect(
         strokes.filter((stroke) => stroke.id.startsWith("element-point-"))
-      ).toHaveLength(0);
+      ).toHaveLength(constellation.points.length);
       expect(
         strokes.some((stroke) => stroke.id.includes("independent-axis"))
       ).toBe(false);
@@ -298,12 +319,12 @@ describe("magic circle animations", () => {
         ).toHaveLength(0);
         expect(
           strokes.filter((stroke) => stroke.id.startsWith("element-point-"))
-        ).toHaveLength(0);
+        ).not.toHaveLength(0);
         expect(
           strokes.filter(
             (stroke) => stroke.kind === "symbol" && stroke.role === "endpoint"
           )
-        ).toHaveLength(0);
+        ).not.toHaveLength(0);
         expect(
           strokes.some((stroke) => stroke.id.includes("independent-axis"))
         ).toBe(false);
@@ -312,6 +333,19 @@ describe("magic circle animations", () => {
         );
       }
     }
+  });
+
+  it("keeps zodiac star counts aligned with unique line vertices", () => {
+    ZODIAC_CONSTELLATIONS.forEach((constellation) => {
+      const linePointIndexes = constellation.lines.flat();
+      const uniqueLinePointIndexes = new Set(linePointIndexes);
+
+      expect(uniqueLinePointIndexes.size).toBe(constellation.points.length);
+      linePointIndexes.forEach((pointIndex) => {
+        expect(pointIndex).toBeGreaterThanOrEqual(0);
+        expect(pointIndex).toBeLessThan(constellation.points.length);
+      });
+    });
   });
 
   it("applies numeric drawing variants to rose and Sierpinski geometry", () => {

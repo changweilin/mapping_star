@@ -106,8 +106,11 @@ describe("honeycomb search profiles", () => {
     expect(zodiac.initialCellCount).toBe(zodiac.targetNodes.length);
     expect(zodiac.targetBands).toEqual([]);
     expect(zodiac.rotationSpanDeg).toBe(360);
-    expect(new Set(zodiac.targetNodes.map((node) => node.radiusScale)).size).toBeGreaterThan(
-      1
-    );
+    expect(
+      Math.max(...zodiac.targetNodes.map((node) => node.radiusScale))
+    ).toBeCloseTo(1, 4);
+    expect(
+      new Set(zodiac.targetNodes.map((node) => node.radiusScale)).size
+    ).toBeGreaterThan(1);
   });
 });

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mapping Star Parameter Data"
+  short_description: "Manage POI categories, settings, and Overpass data rules."
+  default_prompt: "Use $mapping-star-parameter-data to update Mapping Star categories, settings, or Overpass query parameters."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mapping Star Market Science"
+  short_description: "Turn POI and star outputs into market analysis."
+  default_prompt: "Use $mapping-star-market-science to design market-science analysis from Mapping Star POI and star data."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mapping Star Spatial Analysis"
+  short_description: "Analyze geo, solver, honeycomb, and magic geometry logic."
+  default_prompt: "Use $mapping-star-spatial-analysis to change Mapping Star spatial math or solver behavior with tests."
