@@ -37,6 +37,7 @@ interface SolveOptions {
   center: LatLng;
   radiusMeters: number;
   innerRadiusMeters?: number;
+  targetRadiusMeters?: number;
   maxResults?: number;
   angleToleranceMultiplier?: number;
   angleToleranceDeg?: number;
@@ -147,10 +148,33 @@ const normalizeHexPriorityRings = (hexPriorityRings?: number) =>
     )
   );
 
+const resolveTargetRadiusMeters = (
+  outerRadiusMeters: number,
+  innerRadiusMeters: number,
+  targetRadiusMeters?: number
+) => {
+  const fallbackRadiusMeters = getTargetRadiusMeters(
+    outerRadiusMeters,
+    innerRadiusMeters
+  );
+  if (
+    typeof targetRadiusMeters !== "number" ||
+    !Number.isFinite(targetRadiusMeters)
+  ) {
+    return fallbackRadiusMeters;
+  }
+
+  return Math.max(
+    1,
+    Math.min(Math.max(1, outerRadiusMeters), targetRadiusMeters)
+  );
+};
+
 const buildHoneycombContext = (
   prepared: Poi[],
   outerRadiusMeters: number,
   innerRadiusMeters: number,
+  targetRadiusMeters: number,
   hexCellRadiusMeters?: number,
   hexPriorityRings?: number
 ): HoneycombContext => {
@@ -181,10 +205,7 @@ const buildHoneycombContext = (
 
   return {
     cellRadiusMeters,
-    targetRadiusMeters: getTargetRadiusMeters(
-      outerRadiusMeters,
-      innerRadiusMeters
-    ),
+    targetRadiusMeters,
     priorityRings: normalizeHexPriorityRings(hexPriorityRings),
     cells,
     pointsById
@@ -348,7 +369,8 @@ const evaluate = (
   points: Poi[],
   targets: number[],
   outerRadiusMeters: number,
-  innerRadiusMeters: number
+  innerRadiusMeters: number,
+  targetRadiusMeters: number
 ): Evaluation => {
   const planarPoints = points.map((point) =>
     toPlanarPoint(point.distanceMeters, point.bearingDeg)
@@ -385,10 +407,6 @@ const evaluate = (
   const radialScore =
     radiusMeanMeters > 0 ? Math.min(1.5, radiusStdMeters / radiusMeanMeters) : 1;
   const radiusRangeMeters = Math.max(1, outerRadiusMeters - innerRadiusMeters);
-  const targetRadiusMeters = getTargetRadiusMeters(
-    outerRadiusMeters,
-    innerRadiusMeters
-  );
   const radiusPositionPenalty = Math.min(
     1,
     Math.abs(radiusMeanMeters - targetRadiusMeters) / radiusRangeMeters
@@ -760,6 +778,7 @@ export function* solveStarFromPoisSteps(
     center,
     radiusMeters,
     innerRadiusMeters = 0,
+    targetRadiusMeters: requestedTargetRadiusMeters,
     maxResults = 5,
     angleToleranceMultiplier = 1,
     angleToleranceDeg,
@@ -807,12 +826,18 @@ export function* solveStarFromPoisSteps(
     )
   );
   const resultPool = Math.max(maxResults * 8, 24);
+  const targetRadiusMeters = resolveTargetRadiusMeters(
+    radiusMeters,
+    innerRadiusMeters,
+    requestedTargetRadiusMeters
+  );
   const honeycombContext =
     searchStrategy === "honeycomb"
       ? buildHoneycombContext(
           prepared,
           radiusMeters,
           innerRadiusMeters,
+          targetRadiusMeters,
           hexCellRadiusMeters,
           hexPriorityRings
         )
@@ -832,7 +857,8 @@ export function* solveStarFromPoisSteps(
         points,
         targets,
         radiusMeters,
-        innerRadiusMeters
+        innerRadiusMeters,
+        targetRadiusMeters
       );
       insertBest(
         results,
@@ -875,10 +901,6 @@ export function* solveStarFromPoisSteps(
   };
 
   if (searchTargetNodes.length > 0) {
-    const targetRadiusMeters = getTargetRadiusMeters(
-      radiusMeters,
-      innerRadiusMeters
-    );
     const targetRotationSpan = Math.max(
       1,
       Math.min(360, targetRotationSpanDeg ?? slotWidth)

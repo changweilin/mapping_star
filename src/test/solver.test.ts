@@ -250,6 +250,60 @@ describe("star solver", () => {
     expect(results[0].radiusStdMeters).toBeLessThan(1);
   });
 
+  it("uses an explicit user-range target radius when the inner search radius is ignored", () => {
+    const targetNodes = [
+      { id: "tip-north", label: "North tip", radiusScale: 0.56, bearingDeg: 0 },
+      { id: "tip-east", label: "East tip", radiusScale: 0.56, bearingDeg: 90 },
+      {
+        id: "inner-southwest",
+        label: "Inner southwest",
+        radiusScale: 0.32,
+        bearingDeg: 225
+      }
+    ];
+    const defaultTargetRadiusMeters = 5000;
+    const userRangeTargetRadiusMeters = 7000;
+    const defaultTargetPois = targetNodes.map((node, index) =>
+      makePoi(
+        index + 20,
+        node.bearingDeg,
+        defaultTargetRadiusMeters * node.radiusScale
+      )
+    );
+    const userRangeTargetPois = targetNodes.map((node, index) =>
+      makePoi(
+        index,
+        node.bearingDeg,
+        userRangeTargetRadiusMeters * node.radiusScale
+      )
+    );
+
+    const results = solveStarFromPois(
+      [...defaultTargetPois, ...userRangeTargetPois],
+      {
+        mode: 5,
+        center,
+        radiusMeters: 10000,
+        innerRadiusMeters: 0,
+        targetRadiusMeters: userRangeTargetRadiusMeters,
+        angleToleranceDeg: 30,
+        candidatesPerSlot: 1,
+        rotationStepDeg: 1,
+        searchStrategy: "honeycomb",
+        hexCellRadiusMeters: 700,
+        hexPriorityRings: 0,
+        targetNodes,
+        targetRotationSpanDeg: 1
+      }
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0].points.map((point) => point.id)).toEqual(
+      userRangeTargetPois.map((point) => point.id)
+    );
+    expect(results[0].radiusMeanMeters).toBe(userRangeTargetRadiusMeters);
+  });
+
   it("can still use the legacy angular strategy", () => {
     const nearCenterPoint = makePoi(0, 0, 7000);
     const cornerPoint = makePoi(100, 2, 14000);

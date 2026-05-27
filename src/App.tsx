@@ -310,6 +310,7 @@ type HoneycombPreviewParams = {
   center: LatLng;
   innerRadiusMeters: number;
   outerRadiusMeters: number;
+  targetRadiusMeters: number;
   rotationStepDeg: number;
   hexCellRadiusMeters: number;
   priorityRings: number;
@@ -1015,6 +1016,7 @@ const makeHoneycombPreviewCells = ({
   center,
   innerRadiusMeters,
   outerRadiusMeters,
+  targetRadiusMeters,
   rotationStepDeg,
   hexCellRadiusMeters,
   priorityRings,
@@ -1047,10 +1049,6 @@ const makeHoneycombPreviewCells = ({
   const cellRadiusMeters = normalizeHoneycombCellRadius(
     outerRadiusMeters,
     hexCellRadiusMeters
-  );
-  const targetRadiusMeters = getHoneycombTargetRadiusMeters(
-    outerRadiusMeters,
-    innerRadiusMeters
   );
   const rotations: number[] = [];
   const seen = new Set<string>();
@@ -1209,6 +1207,7 @@ const makeHoneycombSearchParams = ({
   center,
   innerRadiusMeters,
   outerRadiusMeters,
+  targetRadiusMeters,
   rotationStepDeg,
   hexCellRadiusMeters
 }: {
@@ -1217,6 +1216,7 @@ const makeHoneycombSearchParams = ({
   center: LatLng;
   innerRadiusMeters: number;
   outerRadiusMeters: number;
+  targetRadiusMeters: number;
   rotationStepDeg: number;
   hexCellRadiusMeters: number;
 }): HoneycombSearchBatchParams => ({
@@ -1224,6 +1224,7 @@ const makeHoneycombSearchParams = ({
   center,
   innerRadiusMeters,
   outerRadiusMeters,
+  targetRadiusMeters,
   rotationStepDeg,
   hexCellRadiusMeters,
   priorityRings: profile.priorityRings,
@@ -1592,6 +1593,10 @@ function App() {
     }`;
   const innerRadiusMeters = innerRadiusKm * 1000;
   const outerRadiusMeters = outerRadiusKm * 1000;
+  const magicTargetRadiusMeters = getHoneycombTargetRadiusMeters(
+    outerRadiusMeters,
+    innerRadiusMeters
+  );
   const effectiveInnerRadiusMeters = honeycombSearchProfile.ignoreInnerRadius
     ? 0
     : innerRadiusMeters;
@@ -1615,6 +1620,7 @@ function App() {
       center,
       radiusMeters: outerRadiusMeters,
       innerRadiusMeters: effectiveInnerRadiusMeters,
+      targetRadiusMeters: magicTargetRadiusMeters,
       maxResults: MAX_STAR_RESULTS,
       angleToleranceDeg: effectiveAngleToleranceDeg,
       candidatesPerSlot,
@@ -1634,6 +1640,7 @@ function App() {
       honeycombSearchProfile.priorityRings,
       honeycombSearchProfile.rotationSpanDeg,
       honeycombSearchProfile.targetNodes,
+      magicTargetRadiusMeters,
       outerRadiusMeters,
       rotationStepDeg,
       searchStrategy,
@@ -2986,6 +2993,7 @@ function App() {
       center,
       innerRadiusMeters: effectiveInnerRadiusMeters,
       outerRadiusMeters,
+      targetRadiusMeters: magicTargetRadiusMeters,
       rotationStepDeg,
       hexCellRadiusMeters: hexCellRadiusKm * 1000
     }));
@@ -3023,6 +3031,7 @@ function App() {
     hexCellRadiusKm,
     honeycombCompletedTargetCount,
     honeycombSearchProfile,
+    magicTargetRadiusMeters,
     outerRadiusMeters,
     rotationStepDeg,
     searchStrategy,
@@ -3534,6 +3543,7 @@ function App() {
           center: searchCenter.center,
           innerRadiusMeters: effectiveInnerRadiusMeters,
           outerRadiusMeters,
+          targetRadiusMeters: magicTargetRadiusMeters,
           rotationStepDeg,
           hexCellRadiusMeters: hexCellRadiusKm * 1000
         });
