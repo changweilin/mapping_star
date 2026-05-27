@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getHoneycombSearchProfile } from "../lib/honeycombStrategy";
+import { ZODIAC_CONSTELLATIONS } from "../lib/magicCircle";
 
 describe("honeycomb search profiles", () => {
   it("keeps regular star searches on the configured radius band", () => {
@@ -98,8 +99,13 @@ describe("honeycomb search profiles", () => {
       sierpinski.targetNodes.some((node) => node.radiusScale > 0.8)
     ).toBe(true);
 
-    expect(zodiac.targetNodes).toHaveLength(7);
+    expect(zodiac.targetNodes).toHaveLength(
+      ZODIAC_CONSTELLATIONS[1].points.length
+    );
     expect(zodiac.targetNodes[0].id).toBe("zodiac-taurus-1");
+    expect(zodiac.initialCellCount).toBe(zodiac.targetNodes.length);
+    expect(zodiac.targetBands).toEqual([]);
+    expect(zodiac.rotationSpanDeg).toBe(360);
     expect(new Set(zodiac.targetNodes.map((node) => node.radiusScale)).size).toBeGreaterThan(
       1
     );

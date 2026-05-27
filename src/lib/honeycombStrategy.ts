@@ -312,14 +312,10 @@ const zodiacProfile = (variantId: string): HoneycombSearchProfile => {
     priorityRings: 4,
     fastCandidatesPerSlot: 6,
     fastRotationStepDeg: 3,
-    initialCellCount: 12,
+    initialCellCount: targetNodes.length,
     cellsPerBatch: 14,
-    targetBands: [
-      { id: "zodiac-gates", slots: 12, radius: 0.92 },
-      { id: "constellation-core", slots: 6, radius: 0.52, phaseOffsetDeg: 15 },
-      { id: "constellation-stars", slots: 8, radius: 0.28, phaseOffsetDeg: 7.5 }
-    ],
-    rotationSpanDeg: 30,
+    targetBands: [],
+    rotationSpanDeg: 360,
     targetNodes
   };
 };

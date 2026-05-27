@@ -4221,32 +4221,6 @@ function App() {
               ))}
             </select>
           </label>
-          {magicDrawShape === "zodiac" && (
-            <div
-              className="zodiac-number-grid"
-              role="group"
-              aria-label="十二星座數字切換"
-            >
-              {magicDrawVariantOptions.map(({ id, label }, index) => (
-                <button
-                  aria-label={`切換到 ${label}`}
-                  aria-pressed={magicDrawVariantValue === id}
-                  className={
-                    magicDrawVariantValue === id
-                      ? "zodiac-number-button selected"
-                      : "zodiac-number-button"
-                  }
-                  disabled={isSearchSettingsLocked}
-                  key={id}
-                  title={label}
-                  type="button"
-                  onClick={() => handleMagicDrawVariantChange(id)}
-                >
-                  {index + 1}
-                </button>
-              ))}
-            </div>
-          )}
         </section>
 
         <nav className="mobile-settings-tabs" aria-label="手機設定頁籤">

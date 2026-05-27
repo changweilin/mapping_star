@@ -479,236 +479,224 @@ export type ZodiacConstellation = {
   rotationDeg?: number;
 };
 
-export const ZODIAC_CONSTELLATIONS = [
-  {
-    id: "aries",
-    name: "牡羊",
-    latinName: "Aries",
-    points: [
-      { x: -0.48, y: 0.08, size: 1.05 },
-      { x: -0.18, y: 0.26, size: 1.2 },
-      { x: 0.12, y: 0.2 },
-      { x: 0.44, y: -0.02, size: 0.92 }
-    ],
-    lines: [[0, 1, 2, 3]],
-    rotationDeg: -10
-  },
-  {
-    id: "taurus",
-    name: "金牛",
-    latinName: "Taurus",
-    points: [
-      { x: 0, y: 0.02, size: 1.16 },
-      { x: -0.24, y: 0.2 },
-      { x: -0.56, y: 0.42, size: 0.92 },
-      { x: 0.26, y: 0.18 },
-      { x: 0.56, y: 0.38, size: 0.92 },
-      { x: -0.12, y: -0.18 },
-      { x: 0.1, y: -0.38 }
-    ],
-    lines: [
-      [2, 1, 0, 3, 4],
-      [0, 5, 6]
-    ],
-    rotationDeg: 6
-  },
-  {
-    id: "gemini",
-    name: "雙子",
-    latinName: "Gemini",
-    points: [
-      { x: -0.34, y: 0.44, size: 1.1 },
-      { x: -0.38, y: 0.1 },
-      { x: -0.32, y: -0.38, size: 0.96 },
-      { x: 0.3, y: 0.4, size: 1.08 },
-      { x: 0.36, y: 0.06 },
-      { x: 0.28, y: -0.4, size: 0.96 }
-    ],
-    lines: [
-      [0, 1, 2],
-      [3, 4, 5],
-      [0, 3],
-      [1, 4],
-      [2, 5]
-    ],
-    rotationDeg: 0
-  },
-  {
-    id: "cancer",
-    name: "巨蟹",
-    latinName: "Cancer",
-    points: [
-      { x: -0.48, y: 0.12, size: 0.94 },
-      { x: -0.16, y: 0.02, size: 1.08 },
-      { x: 0.16, y: 0.12 },
-      { x: 0.48, y: 0.28, size: 0.94 },
-      { x: 0, y: -0.3, size: 1.18 }
-    ],
-    lines: [
-      [0, 1, 2, 3],
-      [1, 4, 2]
-    ],
-    rotationDeg: 12
-  },
-  {
-    id: "leo",
-    name: "獅子",
-    latinName: "Leo",
-    points: [
-      { x: -0.44, y: 0.12, size: 1.06 },
-      { x: -0.22, y: 0.38, size: 1.16 },
-      { x: 0.06, y: 0.34 },
-      { x: 0.22, y: 0.08 },
-      { x: 0.02, y: -0.12, size: 1.08 },
-      { x: 0.34, y: -0.34 },
-      { x: -0.24, y: -0.34, size: 0.94 }
-    ],
-    lines: [
-      [0, 1, 2, 3, 4, 0],
-      [4, 5, 6, 4]
-    ],
-    rotationDeg: -8
-  },
-  {
-    id: "virgo",
-    name: "處女",
-    latinName: "Virgo",
-    points: [
-      { x: -0.52, y: 0.22 },
-      { x: -0.28, y: 0.1, size: 1.04 },
-      { x: -0.04, y: 0.18 },
-      { x: 0.2, y: 0.02 },
-      { x: 0.48, y: -0.12, size: 1.2 },
-      { x: -0.12, y: -0.2 },
-      { x: 0.12, y: -0.36, size: 0.92 }
-    ],
-    lines: [
-      [0, 1, 2, 3, 4],
-      [2, 5, 6],
-      [3, 5]
-    ],
-    rotationDeg: 4
-  },
-  {
-    id: "libra",
-    name: "天秤",
-    latinName: "Libra",
-    points: [
-      { x: -0.5, y: -0.24 },
-      { x: 0, y: -0.24, size: 1.08 },
-      { x: 0.5, y: -0.24 },
-      { x: -0.28, y: 0.08 },
-      { x: 0, y: 0.32, size: 1.2 },
-      { x: 0.28, y: 0.08 }
-    ],
-    lines: [
-      [0, 1, 2],
-      [3, 4, 5],
-      [0, 3],
-      [2, 5]
-    ],
-    rotationDeg: 0
-  },
-  {
-    id: "scorpio",
-    name: "天蠍",
-    latinName: "Scorpio",
-    points: [
-      { x: -0.5, y: 0.3, size: 0.94 },
-      { x: -0.28, y: 0.1 },
-      { x: -0.08, y: -0.08 },
-      { x: 0.16, y: -0.22, size: 1.08 },
-      { x: 0.38, y: -0.16 },
-      { x: 0.5, y: 0.06, size: 0.92 },
-      { x: 0.28, y: 0.22, size: 1.14 }
-    ],
-    lines: [[0, 1, 2, 3, 4, 5, 6]],
-    rotationDeg: -18
-  },
-  {
-    id: "sagittarius",
-    name: "射手",
-    latinName: "Sagittarius",
-    points: [
-      { x: -0.46, y: -0.16 },
-      { x: -0.12, y: 0.02, size: 1.06 },
-      { x: 0.22, y: 0.24, size: 1.18 },
-      { x: 0.48, y: 0.46 },
-      { x: 0.16, y: -0.22 },
-      { x: 0.42, y: -0.08 },
-      { x: -0.1, y: -0.42 }
-    ],
-    lines: [
-      [0, 1, 2, 3],
-      [1, 4, 5],
-      [4, 6],
-      [2, 4]
-    ],
-    rotationDeg: 10
-  },
-  {
-    id: "capricorn",
-    name: "摩羯",
-    latinName: "Capricorn",
-    points: [
-      { x: -0.52, y: 0.1 },
-      { x: -0.22, y: 0.22, size: 1.04 },
-      { x: 0.1, y: 0.1 },
-      { x: 0.42, y: 0.24 },
-      { x: 0.22, y: -0.22, size: 1.12 },
-      { x: -0.12, y: -0.36 },
-      { x: -0.42, y: -0.16, size: 0.94 }
-    ],
-    lines: [
-      [0, 1, 2, 3],
-      [2, 4, 5, 6, 0]
-    ],
-    rotationDeg: -4
-  },
-  {
-    id: "aquarius",
-    name: "水瓶",
-    latinName: "Aquarius",
-    points: [
-      { x: -0.52, y: 0.24 },
-      { x: -0.28, y: 0.38 },
-      { x: -0.04, y: 0.22 },
-      { x: 0.2, y: 0.36 },
-      { x: 0.48, y: 0.18 },
-      { x: -0.46, y: -0.16 },
-      { x: -0.2, y: -0.02 },
-      { x: 0.06, y: -0.18 },
-      { x: 0.32, y: -0.04 },
-      { x: 0.54, y: -0.2 }
-    ],
-    lines: [
-      [0, 1, 2, 3, 4],
-      [5, 6, 7, 8, 9]
-    ],
-    rotationDeg: 0
-  },
-  {
-    id: "pisces",
-    name: "雙魚",
-    latinName: "Pisces",
-    points: [
-      { x: -0.48, y: 0.28, size: 1.12 },
-      { x: -0.34, y: 0.02 },
-      { x: -0.5, y: -0.22 },
-      { x: -0.18, y: -0.28 },
-      { x: 0.1, y: -0.12, size: 1.04 },
-      { x: 0.42, y: -0.28 },
-      { x: 0.54, y: 0.02 },
-      { x: 0.34, y: 0.3, size: 1.14 }
-    ],
-    lines: [
-      [0, 1, 2, 3, 4],
-      [4, 5, 6, 7],
-      [1, 4, 6]
-    ],
-    rotationDeg: 8
+type ZodiacSkyPoint = readonly [number, number];
+type ZodiacSkyLine = readonly ZodiacSkyPoint[];
+
+type ZodiacConstellationSource = {
+  id: string;
+  name: string;
+  latinName: string;
+  skyLines: readonly ZodiacSkyLine[];
+};
+
+const formatZodiacSkyPointKey = ([longitudeDeg, declinationDeg]: ZodiacSkyPoint) =>
+  `${longitudeDeg.toFixed(4)},${declinationDeg.toFixed(4)}`;
+
+const unwrapZodiacSkyLongitudes = (points: readonly ZodiacSkyPoint[]) => {
+  const longitudes = [...new Set(points.map(([longitudeDeg]) => longitudeDeg))].sort(
+    (left, right) => left - right
+  );
+  const unwrapped = new Map<number, number>();
+
+  if (longitudes.length === 0) return unwrapped;
+
+  let cutIndex = 0;
+  let largestGap = Number.NEGATIVE_INFINITY;
+  for (let index = 0; index < longitudes.length; index += 1) {
+    const current = longitudes[index]!;
+    const next =
+      index === longitudes.length - 1
+        ? longitudes[0]! + FULL_CIRCLE_DEGREES
+        : longitudes[index + 1]!;
+    const gap = next - current;
+
+    if (gap > largestGap) {
+      largestGap = gap;
+      cutIndex = (index + 1) % longitudes.length;
+    }
   }
-] as const satisfies readonly ZodiacConstellation[];
+
+  const cutLongitude = longitudes[cutIndex]!;
+  longitudes.forEach((longitudeDeg) => {
+    unwrapped.set(
+      longitudeDeg,
+      longitudeDeg < cutLongitude ? longitudeDeg + FULL_CIRCLE_DEGREES : longitudeDeg
+    );
+  });
+
+  return unwrapped;
+};
+
+const makeZodiacConstellation = ({
+  id,
+  name,
+  latinName,
+  skyLines
+}: ZodiacConstellationSource): ZodiacConstellation => {
+  const pointIndexByKey = new Map<string, number>();
+  const uniqueSkyPoints: ZodiacSkyPoint[] = [];
+
+  skyLines.forEach((line) => {
+    line.forEach((point) => {
+      const key = formatZodiacSkyPointKey(point);
+      if (pointIndexByKey.has(key)) return;
+      pointIndexByKey.set(key, uniqueSkyPoints.length);
+      uniqueSkyPoints.push(point);
+    });
+  });
+
+  const unwrappedLongitudes = unwrapZodiacSkyLongitudes(uniqueSkyPoints);
+  const meanLongitudeDeg =
+    uniqueSkyPoints.reduce(
+      (total, [longitudeDeg]) =>
+        total + (unwrappedLongitudes.get(longitudeDeg) ?? longitudeDeg),
+      0
+    ) / uniqueSkyPoints.length;
+  const meanDeclinationDeg =
+    uniqueSkyPoints.reduce((total, [, declinationDeg]) => total + declinationDeg, 0) /
+    uniqueSkyPoints.length;
+  const declinationScale = Math.cos((meanDeclinationDeg * Math.PI) / 180);
+  const rawPoints = uniqueSkyPoints.map(([longitudeDeg, declinationDeg]) => ({
+    x:
+      ((unwrappedLongitudes.get(longitudeDeg) ?? longitudeDeg) - meanLongitudeDeg) *
+      declinationScale,
+    y: declinationDeg - meanDeclinationDeg
+  }));
+  const maxRadius = Math.max(
+    0.000001,
+    ...rawPoints.map((point) => Math.hypot(point.x, point.y))
+  );
+
+  return {
+    id,
+    name,
+    latinName,
+    points: rawPoints.map(({ x, y }) => ({
+      x: Number((x / maxRadius).toFixed(4)),
+      y: Number((y / maxRadius).toFixed(4))
+    })),
+    lines: skyLines.map((line) =>
+      line.map((point) => pointIndexByKey.get(formatZodiacSkyPointKey(point))!)
+    )
+  };
+};
+
+// Coordinates are d3-celestial constellation lines in sky longitude/declination degrees.
+export const ZODIAC_CONSTELLATIONS = [
+  makeZodiacConstellation({
+    id: "aries",
+    name: "白羊座",
+    latinName: "Aries",
+    skyLines: [
+      [[42.496, 27.2605], [31.7934, 23.4624], [28.66, 20.808], [28.3826, 19.2939]]
+    ]
+  }),
+  makeZodiacConstellation({
+    id: "taurus",
+    name: "金牛座",
+    latinName: "Taurus",
+    skyLines: [
+      [[84.4112, 21.1425], [68.9802, 16.5093], [67.1656, 15.8709], [64.9483, 15.6276], [65.7337, 17.5425], [67.1542, 19.1804], [81.573, 28.6075]],
+      [[64.9483, 15.6276], [60.1701, 12.4903], [51.7923, 9.7327], [60.7891, 5.9893]],
+      [[51.7923, 9.7327], [51.2033, 9.0289], [54.2183, 0.4017]]
+    ]
+  }),
+  makeZodiacConstellation({
+    id: "gemini",
+    name: "雙子座",
+    latinName: "Gemini",
+    skyLines: [
+      [[93.7194, 22.5068], [95.7401, 22.5136], [100.983, 25.1311], [107.7849, 30.2452], [113.6494, 31.8883], [116.329, 28.0262], [113.9806, 26.8957], [110.0307, 21.9823], [106.0272, 20.5703], [99.4279, 16.3993], [101.3224, 12.8956]],
+      [[110.0307, 21.9823], [109.5232, 16.5404]]
+    ]
+  }),
+  makeZodiacConstellation({
+    id: "cancer",
+    name: "巨蟹座",
+    latinName: "Cancer",
+    skyLines: [
+      [[134.6218, 11.8577], [131.1712, 18.1543], [130.8214, 21.4685], [131.6666, 28.7651]],
+      [[131.1712, 18.1543], [124.1288, 9.1855]]
+    ]
+  }),
+  makeZodiacConstellation({
+    id: "leo",
+    name: "獅子座",
+    latinName: "Leo",
+    skyLines: [
+      [[152.093, 11.9672], [151.8331, 16.7627], [154.9931, 19.8415], [168.5271, 20.5237], [177.2649, 14.5721], [168.56, 15.4296], [152.093, 11.9672]],
+      [[154.9931, 19.8415], [154.1726, 23.4173], [148.1909, 26.007], [146.4628, 23.7743]]
+    ]
+  }),
+  makeZodiacConstellation({
+    id: "virgo",
+    name: "處女座",
+    latinName: "Virgo",
+    skyLines: [
+      [[176.4648, 6.5294], [177.6738, 1.7647], [-175.0235, -0.6668], [-169.5848, -1.4494], [-162.5125, -5.539], [-158.7018, -11.1613], [-145.9964, -6.0005], [-139.2349, -5.6582]],
+      [[-164.4558, 10.9592], [-166.0991, 3.3975], [-169.5848, -1.4494]],
+      [[-162.5125, -5.539], [-156.3267, -0.5958], [-149.5884, 1.5445], [-138.4378, 1.8929]]
+    ]
+  }),
+  makeZodiacConstellation({
+    id: "libra",
+    name: "天秤座",
+    latinName: "Libra",
+    skyLines: [
+      [[-133.9824, -25.282], [-137.2804, -16.0418], [-130.7483, -9.3829], [-126.1184, -14.7895], [-125.744, -28.1351], [-125.336, -29.7778]],
+      [[-137.2804, -16.0418], [-126.1184, -14.7895]]
+    ]
+  }),
+  makeZodiacConstellation({
+    id: "scorpius",
+    name: "天蠍座",
+    latinName: "Scorpius",
+    skyLines: [
+      [[-120.287, -26.1141], [-119.9166, -22.6217], [-118.6407, -19.8055]],
+      [[-119.9166, -22.6217], [-114.7028, -25.5928], [-112.6481, -26.432], [-111.0294, -28.216], [-107.4591, -34.2932], [-107.0324, -38.0474], [-106.3541, -42.3613], [-101.9617, -43.2392], [-95.6703, -42.9978], [-93.1038, -40.127], [-94.378, -39.03], [-96.5978, -37.1038]]
+    ]
+  }),
+  makeZodiacConstellation({
+    id: "sagittarius",
+    name: "射手座",
+    latinName: "Sagittarius",
+    skyLines: [
+      [[-85.5932, -36.7617], [-83.957, -34.3846], [-84.7515, -29.8281], [-83.0073, -25.4217], [-86.5591, -21.0588]],
+      [[-69.3404, -44.459], [-69.0284, -40.6159], [-74.347, -29.8801], [-78.5859, -26.9908], [-83.0073, -25.4217]],
+      [[-61.1846, -41.8683], [-60.0659, -35.2763], [-61.0402, -26.2995], [-65.8232, -24.8836], [-68.6813, -24.5086], [-71.1149, -25.2567], [-76.1836, -26.2967], [-78.5859, -26.9908], [-84.7515, -29.8281], [-88.548, -30.4241], [-83.957, -34.3846], [-74.347, -29.8801], [-73.265, -27.6704], [-76.1836, -26.2967], [-73.8292, -21.7415], [-72.559, -21.0236], [-70.5913, -18.9529], [-69.5818, -17.8472], [-69.5682, -15.955]],
+      [[-73.8292, -21.7415], [-75.5675, -21.1067], [-76.4576, -22.7448], [-76.1836, -26.2967]]
+    ]
+  }),
+  makeZodiacConstellation({
+    id: "capricornus",
+    name: "摩羯座",
+    latinName: "Capricornus",
+    skyLines: [
+      [[-55.588, -12.5082], [-54.7472, -14.7814], [-52.7849, -17.8137], [-48.4761, -25.2709], [-47.0446, -26.9191], [-38.3332, -22.4113], [-33.2398, -16.1273], [-34.9773, -16.6623], [-39.4383, -16.8345], [-43.5132, -17.2329], [-55.588, -12.5082]]
+    ]
+  }),
+  makeZodiacConstellation({
+    id: "aquarius",
+    name: "水瓶座",
+    latinName: "Aquarius",
+    skyLines: [
+      [[-48.081, -9.4958], [-46.8365, -8.9833], [-37.1103, -5.5712], [-28.554, -0.3199], [-24.5859, -1.3873], [-22.792, -0.02], [-21.1609, -0.1175], [-16.8464, -7.5796], [-10.5241, -9.1825], [-12.6383, -21.1724]],
+      [[-37.1103, -5.5712], [-28.3907, -13.8697]],
+      [[-28.554, -0.3199], [-25.7915, -7.7833]],
+      [[-22.792, -0.02], [-23.6807, 1.3774]],
+      [[-9.2574, -20.1006], [-10.5241, -9.1825], [-4.5591, -17.8165]]
+    ]
+  }),
+  makeZodiacConstellation({
+    id: "pisces",
+    name: "雙魚座",
+    latinName: "Pisces",
+    skyLines: [
+      [[18.4373, 24.5837], [17.9152, 30.0896], [19.8666, 27.2641], [18.4373, 24.5837], [17.8634, 21.0347], [22.8709, 15.3458], [26.3485, 9.1577], [30.5118, 2.7638], [28.389, 3.1875], [25.3579, 5.4876], [22.5463, 6.1438], [18.4329, 7.5754], [15.7359, 7.8901], [12.1706, 7.5851], [-0.1721, 6.8633], [-5.0123, 5.6263], [-8.0079, 6.379], [-9.9142, 5.3813], [-10.7086, 3.2823], [-8.2669, 1.2556], [-4.4883, 1.78], [-3.402, 3.4868], [-5.0123, 5.6263]],
+      [[-10.7086, 3.2823], [-14.0308, 3.82]]
+    ]
+  })
+] satisfies readonly ZodiacConstellation[];
 
 export const ZODIAC_CONSTELLATION_COUNT = ZODIAC_CONSTELLATIONS.length;
 
