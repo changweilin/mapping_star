@@ -1,12 +1,8 @@
 import { ChevronDown, ChevronUp } from "lucide-react";
-
-export type StarResultSortKey =
-  | "score"
-  | "radius"
-  | "angle"
-  | "circumference-error"
-  | "center-error";
-export type StarResultSortDirection = "asc" | "desc";
+import type {
+  StarResultSortDirection,
+  StarResultSortKey
+} from "../lib/starResults";
 
 const STAR_RESULT_SORT_OPTIONS = [
   { id: "score", label: "分數" },

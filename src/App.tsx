@@ -35,22 +35,30 @@ import {
   Upload,
   UserRound
 } from "lucide-react";
-import {
-  DrawSummaryDetails,
-  getSearchStrategyLabel
-} from "./components/DrawSummaryDetails";
+import { DrawSummaryDetails } from "./components/DrawSummaryDetails";
 import { MarqueeSelect } from "./components/MarqueeSelect";
 import { PlaceCandidateList } from "./components/PlaceCandidateList";
 import { RadiusRangeControl } from "./components/RadiusRangeControl";
 import { ResultAggregateSummary } from "./components/ResultAggregateSummary";
 import { ResultMetric } from "./components/ResultMetric";
-import {
-  ResultSortToolbar,
-  type StarResultSortDirection,
-  type StarResultSortKey
-} from "./components/ResultSortToolbar";
+import { ResultSortToolbar } from "./components/ResultSortToolbar";
 import { SelectedPoiDetail } from "./components/SelectedPoiDetail";
 import { POI_CATEGORIES } from "./data/categories";
+import {
+  getCategoryDownloadProgressPercent,
+  getAnalyzeProgressPercent,
+  getSolveProgressLabel,
+  getSolveProgressPercent,
+  interpolateProgress,
+  type CalculationProgress
+} from "./lib/calculationProgress";
+import { downloadJson, downloadText, getExportDateStamp } from "./lib/download";
+import {
+  formatDrawSummaryProgressLabel,
+  formatDrawSummaryStatus,
+  makeCalculationMessageRecord,
+  makeCalculationRecordFromSummary
+} from "./lib/drawSummary";
 import { exportGpx, exportKml, splitFavorites } from "./lib/exporters";
 import {
   createFavoritesArchive,
@@ -60,45 +68,65 @@ import {
   parseFavoritesArchive,
   saveFavorites
 } from "./lib/favorites";
+import { formatDistance, normalizeDegrees } from "./lib/geo";
 import {
-  destinationPoint,
-  formatDistance,
-  normalizeDegrees
-} from "./lib/geo";
-import {
-  getHexCellCenterPlanar as getHoneycombCellCenterPlanar,
-  getHexRing as getHoneycombRing,
   getHexTargetRadiusMeters as getHoneycombTargetRadiusMeters,
-  hexKey as getHoneycombCellKey,
-  normalizeHexCellRadius as normalizeHoneycombCellRadius,
-  pointToHex as honeycombPointToCell,
-  toPlanarPoint as makeHoneycombPlanarPoint,
-  type HexCell
+  normalizeHexCellRadius as normalizeHoneycombCellRadius
 } from "./lib/hexGrid";
 import {
-  getHoneycombSearchProfile,
-  type HoneycombSearchProfile,
-  type HoneycombTargetBand,
-  type HoneycombTargetNode
-} from "./lib/honeycombStrategy";
+  filterPoisByHoneycombCells,
+  getHoneycombCellBounds,
+  makeHoneycombPreviewCells,
+  makeHoneycombSearchBatches,
+  makeHoneycombSearchParams
+} from "./lib/honeycombPreview";
+import { getHoneycombSearchProfile } from "./lib/honeycombStrategy";
 import { loadLastStar, saveLastStar } from "./lib/lastStar";
 import {
   getMagicElement,
   getMagicAnimationOptions,
   MAGIC_SPEED_OPTIONS,
-  ZODIAC_CONSTELLATIONS,
   makeMagicCircleStrokes,
-  type MagicCircleStroke,
-  type MagicCircleGeometryOptions,
-  type MagicCombinedShape,
-  type MagicGeometryPattern,
   type MagicSpeed
 } from "./lib/magicCircle";
 import {
+  getMagicDrawShapeForMode,
+  getMagicDrawVariantOption,
+  isMagicDrawShape,
+  makeInitialMagicDrawVariants,
+  MAGIC_DRAW_SHAPE_OPTIONS,
+  MAGIC_DRAW_VARIANT_OPTIONS,
+  MAGIC_PLAYBACK_MODES,
+  type MagicDrawVariantOption
+} from "./lib/magicDraw";
+import {
+  applyMagicMarkerTiming,
+  applyMagicStrokeTiming,
+  clampMagicTimelinePosition,
+  formatMagicSpeed,
+  getMagicBoundaryPosition,
+  getMagicDelayMs,
+  getMagicTimelineDurationMs,
+  parseMagicSpeed,
+  setMagicLayerPlayback,
+  MAGIC_POINT_DELAY_MS,
+  MAGIC_POINT_DURATION_MS,
+  MAGIC_POINT_STEP_MS,
+  MAGIC_TIMELINE_END_PADDING_MS
+} from "./lib/magicPlayback";
+import {
+  createBaseTileLayer,
+  makeCenterIcon,
+  makeHoneycombOrderIcon,
+  makeMagicSymbolIcon,
+  makeRadiusBounds,
+  makeSectorPolygon,
+  makeStarBounds
+} from "./lib/mapLayers";
+import {
   fetchPoisDetailed,
   fetchPoisForBoundsDetailed,
-  overpassResultLimit,
-  type OverpassBounds
+  overpassResultLimit
 } from "./lib/overpass";
 import { searchPlaces } from "./lib/placeSearch";
 import {
@@ -116,15 +144,18 @@ import {
   saveSearchSession
 } from "./lib/searchSession";
 import {
-  maxAngleToleranceForMode,
-  starModeLabel
-} from "./lib/starPatterns";
+  getStarCenterErrorMeters,
+  getStarResultAggregateStats,
+  sortStarResults,
+  type StarResultSortDirection,
+  type StarResultSortKey
+} from "./lib/starResults";
+import { maxAngleToleranceForMode, starModeLabel } from "./lib/starPatterns";
 import { formatClockTime, formatElapsedMs } from "./lib/timeFormat";
 import {
   preparePois,
   solveStarFromPois,
-  solveStarFromPoisSteps,
-  type SolveProgress
+  solveStarFromPoisSteps
 } from "./lib/solver";
 import { makeAutomaticStarName } from "./lib/starNaming";
 import type {
@@ -140,17 +171,9 @@ import type {
   Poi,
   SearchStrategy,
   StarMode,
-  StarResultAggregateStats,
   StarResult
 } from "./types";
 
-type MagicDrawVariantOption = {
-  id: string;
-  label: string;
-  mode?: StarMode;
-  geometryPattern: MagicGeometryPattern;
-  geometryOptions?: MagicCircleGeometryOptions;
-};
 type MobileSettingsTab =
   | "search"
   | "categories"
@@ -163,77 +186,14 @@ type PoiRenderMode = "limited" | "all" | "hidden";
 const MAX_RENDERED_POIS = 350;
 const MAX_RADIUS_KM = 30;
 const MAX_STAR_RESULTS = 50;
-const MAX_HONEYCOMB_PREVIEW_CELLS = 240;
 const HONEYCOMB_BATCH_RESULT_LIMIT = 900;
 const MIN_SOLVER_TARGET_DISTANCE_METERS = 30;
-const MAGIC_POINT_DELAY_MS = 1880;
-const MAGIC_POINT_STEP_MS = 90;
-const MAGIC_POINT_DURATION_MS = 520;
-const MAGIC_TIMELINE_END_PADDING_MS = 140;
 const MAGIC_SELECT_LONG_PRESS_MS = 360;
 const MAGIC_SELECT_SCROLL_CANCEL_PX = 10;
 const MAGIC_SELECT_TOUCH_STEP_PX = 26;
 const MOBILE_SPLITTER_DOUBLE_TAP_MS = 320;
 const MOBILE_SPLITTER_DOUBLE_TAP_PX = 14;
-const MAGIC_PLAYBACK_MODES = [
-  { id: "single", label: "單曲播放" },
-  { id: "continuous", label: "連續播放" },
-  { id: "loop-all", label: "循環播放" },
-  { id: "loop-one", label: "單曲循環播放" }
-] satisfies Array<{ id: MagicPlaybackMode; label: string }>;
-const makeCombinedVariant = (
-  id: string,
-  label: string,
-  mode: StarMode,
-  combinedShape: MagicCombinedShape
-): MagicDrawVariantOption => ({
-  id,
-  label,
-  mode,
-  geometryPattern: "combined",
-  geometryOptions: { combinedShape }
-});
-const MAGIC_DRAW_SHAPE_OPTIONS = [
-  { id: "star", label: "星芒" },
-  { id: "cross", label: "十字星" },
-  { id: "bagua", label: "八卦陣" },
-  { id: "rose", label: "玫瑰曲線" },
-  { id: "sierpinski", label: "Sierpinski 三角形" },
-  { id: "zodiac", label: "星座" }
-] satisfies Array<{ id: MagicDrawShape; label: string }>;
-const MAGIC_DRAW_VARIANT_OPTIONS = {
-  star: [
-    makeCombinedVariant("5", "5", 5, "star"),
-    makeCombinedVariant("6", "6", 6, "star"),
-    makeCombinedVariant("7", "7", 7, "star"),
-    makeCombinedVariant("8", "8", 8, "star")
-  ],
-  cross: [makeCombinedVariant("4", "4", 4, "cross")],
-  bagua: [makeCombinedVariant("8", "8", 8, "bagua")],
-  rose: [2, 3, 4, 5, 6, 7, 8, 9].map((petalFactor): MagicDrawVariantOption => ({
-    id: `k-${petalFactor}`,
-    label:
-      petalFactor % 2 === 0
-        ? `k=${petalFactor} (${petalFactor * 2}瓣)`
-        : `k=${petalFactor}`,
-    geometryPattern: "rose",
-    geometryOptions: { rosePetalFactor: petalFactor }
-  })),
-  sierpinski: [1, 2, 3, 4].map((depth): MagicDrawVariantOption => ({
-    id: `d-${depth}`,
-    label: `d=${depth}`,
-    geometryPattern: "sierpinski",
-    geometryOptions: { sierpinskiDepth: depth }
-  })),
-  zodiac: ZODIAC_CONSTELLATIONS.map(
-    (constellation, index): MagicDrawVariantOption => ({
-      id: `${index + 1}`,
-      label: `${index + 1} ${constellation.name}`,
-      geometryPattern: "zodiac",
-      geometryOptions: { zodiacIndex: index }
-    })
-  )
-} satisfies Record<MagicDrawShape, MagicDrawVariantOption[]>;
+
 const MOBILE_SETTINGS_TABS = [
   { id: "search", label: "搜索中心" },
   { id: "categories", label: "目標類別" },
@@ -265,7 +225,6 @@ const CATEGORY_GROUPS = CATEGORY_GROUP_ORDER.map((group) => ({
   categories: POI_CATEGORIES.filter((category) => category.group === group)
 })).filter(({ categories }) => categories.length > 0);
 
-type MagicSymbolStroke = Extract<MagicCircleStroke, { kind: "symbol" }>;
 type MagicSelectTouchState = {
   startY: number;
   lastStepY: number;
@@ -291,50 +250,11 @@ type MobileSplitterTapState = {
   x: number;
   y: number;
 };
-type CalculationProgress = {
-  label: string;
-  percent: number;
-};
-type HoneycombPreviewCell = {
-  key: string;
-  order: number;
-  ring: number;
-  center: LatLng;
-  targetCenter: LatLng;
-  targetLabel: string;
-  polygon: LatLng[];
-};
-type HoneycombSearchBatch = {
-  cells: HoneycombPreviewCell[];
-  isInitial: boolean;
-  label: string;
-};
-type HoneycombPreviewParams = {
-  mode: StarMode;
-  center: LatLng;
-  innerRadiusMeters: number;
-  outerRadiusMeters: number;
-  targetRadiusMeters: number;
-  rotationStepDeg: number;
-  hexCellRadiusMeters: number;
-  priorityRings: number;
-  rotationSpanDeg?: number;
-  targetBands: HoneycombTargetBand[];
-  targetNodes: HoneycombTargetNode[];
-};
-type HoneycombSearchBatchParams = HoneycombPreviewParams & {
-  initialCellCount: number;
-  cellsPerBatch: number;
-};
 type CompletionNotice = {
   id: string;
   title: string;
   message: string;
   variant?: "success" | "error";
-};
-type MapTileLayerConfig = {
-  url: string;
-  options: L.TileLayerOptions;
 };
 
 const MAP_LAYER_OPTIONS = [
@@ -346,34 +266,6 @@ const MAP_LAYER_OPTIONS = [
   label: string;
   Icon: typeof MapIcon;
 }>;
-
-const MAP_TILE_LAYERS: Record<MapLayerId, MapTileLayerConfig> = {
-  street: {
-    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    options: {
-      maxZoom: 19,
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-    }
-  },
-  terrain: {
-    url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-    options: {
-      maxZoom: 19,
-      maxNativeZoom: 17,
-      attribution:
-        'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, SRTM | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>'
-    }
-  },
-  satellite: {
-    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    options: {
-      maxZoom: 19,
-      attribution:
-        'Tiles &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community'
-    }
-  }
-};
 
 const ABOUT_LINKS = [
   {
@@ -396,254 +288,13 @@ const ABOUT_LINKS = [
   }
 ];
 
-const createBaseTileLayer = (layerId: MapLayerId) => {
-  const config = MAP_TILE_LAYERS[layerId];
-
-  return L.tileLayer(config.url, {
-    ...config.options,
-    className: `map-base-tile map-base-tile--${layerId}`
-  });
-};
-
 const formatCoordinate = ({ lat, lng }: LatLng) =>
   `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
 
 const formatDegrees = (value: number) => `${normalizeDegrees(value).toFixed(1)}°`;
 
-const getStarCenterErrorMeters = (result: StarResult) =>
-  typeof result.centerErrorMeters === "number" &&
-  Number.isFinite(result.centerErrorMeters)
-    ? result.centerErrorMeters
-    : 0;
-
-const compareNumber = (left: number, right: number) => {
-  const delta = left - right;
-  return Math.abs(delta) > 0.000001 ? delta : 0;
-};
-
-const compareStarResultsByScore = (left: StarResult, right: StarResult) =>
-  compareNumber(left.score, right.score) ||
-  compareNumber(left.radiusStdMeters, right.radiusStdMeters) ||
-  compareNumber(getStarCenterErrorMeters(left), getStarCenterErrorMeters(right)) ||
-  left.id.localeCompare(right.id);
-
-const sortStarResults = (
-  results: StarResult[],
-  sortKey: StarResultSortKey,
-  direction: StarResultSortDirection
-) => {
-  const sorted = [...results].sort((left, right) => {
-    switch (sortKey) {
-      case "radius":
-        return (
-          compareNumber(left.radiusMeanMeters, right.radiusMeanMeters) ||
-          compareStarResultsByScore(left, right)
-        );
-      case "angle":
-        return (
-          compareNumber(
-            normalizeDegrees(left.rotationDeg),
-            normalizeDegrees(right.rotationDeg)
-          ) || compareStarResultsByScore(left, right)
-        );
-      case "circumference-error":
-        return (
-          compareNumber(left.radiusStdMeters, right.radiusStdMeters) ||
-          compareStarResultsByScore(left, right)
-        );
-      case "center-error":
-        return (
-          compareNumber(
-            getStarCenterErrorMeters(left),
-            getStarCenterErrorMeters(right)
-          ) || compareStarResultsByScore(left, right)
-        );
-      case "score":
-      default:
-        return compareStarResultsByScore(left, right);
-    }
-  });
-  return direction === "asc" ? sorted : sorted.reverse();
-};
-
-const averageStarResultValue = (
-  results: StarResult[],
-  getValue: (result: StarResult) => number
-) =>
-  results.length === 0
-    ? 0
-    : results.reduce((total, result) => total + getValue(result), 0) /
-      results.length;
-
-const getStarResultAggregateStats = (
-  results: StarResult[]
-): StarResultAggregateStats | null => {
-  if (results.length === 0) return null;
-
-  return {
-    count: results.length,
-    averageRadiusMeters: averageStarResultValue(
-      results,
-      (result) => result.radiusMeanMeters
-    ),
-    averageCircumferenceErrorMeters: averageStarResultValue(
-      results,
-      (result) => result.radiusStdMeters
-    ),
-    averageAngleErrorDeg: averageStarResultValue(
-      results,
-      (result) => result.angleErrorDeg
-    ),
-    averageCenterErrorMeters: averageStarResultValue(
-      results,
-      getStarCenterErrorMeters
-    ),
-    averageScore: averageStarResultValue(results, (result) => result.score)
-  };
-};
-
 const getNowMs = () =>
   typeof performance === "undefined" ? Date.now() : performance.now();
-
-const getStarModeLabel = starModeLabel;
-
-const isMagicDrawShape = (value: string): value is MagicDrawShape =>
-  MAGIC_DRAW_SHAPE_OPTIONS.some((option) => option.id === value);
-
-const getMagicDrawShapeForMode = (mode: StarMode): MagicDrawShape =>
-  mode === 4 ? "cross" : mode === 8 ? "bagua" : "star";
-
-const getMagicDrawVariantOption = (
-  shape: MagicDrawShape,
-  value: string | undefined
-) => {
-  const options = MAGIC_DRAW_VARIANT_OPTIONS[shape];
-  return options.find((option) => option.id === value) ?? options[0]!;
-};
-
-const makeInitialMagicDrawVariants = (mode: StarMode) => {
-  const shape = getMagicDrawShapeForMode(mode);
-  return {
-    ...DEFAULT_MAGIC_DRAW_VARIANTS,
-    [shape]: String(mode)
-  };
-};
-
-const formatDrawSummaryProgressLabel = (summary: DrawSummary) =>
-  summary.resultCount > 0
-    ? `魔法陣完成 · ${summary.resultCount} 組 · ${formatElapsedMs(
-        summary.totalElapsedMs
-      )}`
-    : `計算完成 · 0 組 · ${formatElapsedMs(summary.totalElapsedMs)}`;
-
-const formatDrawSummaryStatus = (summary: DrawSummary) => {
-  const starLabel = getStarModeLabel(summary.mode);
-  const firstResultText =
-    summary.firstResultElapsedMs === null
-      ? "未產生第一個魔法陣"
-      : `${formatElapsedMs(summary.firstResultElapsedMs)}（${formatClockTime(
-          summary.firstResultAtIso
-        )}）`;
-  const resultText =
-    summary.resultCount > 0
-      ? `共找到 ${summary.resultCount} 組${starLabel}魔法陣`
-      : `未找到符合條件的${starLabel}魔法陣`;
-  const warningText =
-    summary.warningCount > 0 ? `；另有 ${summary.warningCount} 則提醒` : "";
-
-  return `${summary.sourceLabel}完成：首個 ${firstResultText}，總耗時 ${formatElapsedMs(
-    summary.totalElapsedMs
-  )}，${resultText}。候選點 ${summary.eligiblePoiCount}/${
-    summary.totalPoiCount
-  }，範圍 ${summary.radiusRangeLabel}，策略 ${getSearchStrategyLabel(
-    summary
-  )}${warningText}。`;
-};
-
-const interpolateProgress = (
-  startPercent: number,
-  endPercent: number,
-  completed: number,
-  total: number
-) => {
-  const ratio = total <= 0 ? 0 : Math.max(0, Math.min(1, completed / total));
-  return startPercent + (endPercent - startPercent) * ratio;
-};
-
-const getCategoryDownloadProgressPercent = (
-  searchStrategy: SearchStrategy,
-  completedCategories: number,
-  totalCategories: number
-) =>
-  searchStrategy === "honeycomb"
-    ? interpolateProgress(34, 58, completedCategories, totalCategories)
-    : interpolateProgress(34, 66, completedCategories, totalCategories);
-
-const getAnalyzeProgressPercent = (searchStrategy: SearchStrategy) =>
-  searchStrategy === "honeycomb" ? 62 : 68;
-
-const getSolveProgressPercent = (
-  searchStrategy: SearchStrategy,
-  progress: SolveProgress
-) =>
-  searchStrategy === "honeycomb"
-    ? interpolateProgress(64, 90, progress.completedSteps, progress.totalSteps)
-    : interpolateProgress(70, 88, progress.completedSteps, progress.totalSteps);
-
-const getSolveProgressLabel = (progress: SolveProgress) => {
-  const resultText =
-    progress.results.length > 0 ? ` · 暫得 ${progress.results.length} 組` : "";
-  return `${progress.label}${resultText}`;
-};
-
-const makeCalculationRecordFromSummary = (
-  summary: DrawSummary
-): CalculationRecord => {
-  const status = summary.resultCount > 0 ? "completed" : "empty";
-
-  return {
-    id: summary.id,
-    status,
-    sourceLabel: summary.sourceLabel,
-    title:
-      status === "completed"
-        ? `${summary.sourceLabel}完成`
-        : `${summary.sourceLabel}完成，尚無魔法陣`,
-    message: formatDrawSummaryStatus(summary),
-    startedAtIso: summary.startedAtIso,
-    finishedAtIso: summary.finishedAtIso,
-    totalElapsedMs: summary.totalElapsedMs,
-    summary
-  };
-};
-
-const makeCalculationMessageRecord = ({
-  status,
-  sourceLabel,
-  title,
-  message,
-  startedAtIso,
-  startedAtMs,
-  finishedAtMs
-}: {
-  status: "cancelled" | "failed";
-  sourceLabel: string;
-  title: string;
-  message: string;
-  startedAtIso: string;
-  startedAtMs: number;
-  finishedAtMs: number;
-}): CalculationRecord => ({
-  id: `calculation-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  status,
-  sourceLabel,
-  title,
-  message,
-  startedAtIso,
-  finishedAtIso: new Date().toISOString(),
-  totalElapsedMs: finishedAtMs - startedAtMs,
-  summary: null
-});
 
 const mergePois = (currentPois: Poi[], nextPois: Poi[]) => {
   const byId = new Map(currentPois.map((poi) => [poi.id, poi]));
@@ -659,39 +310,6 @@ const waitForPaint = () =>
           window.requestAnimationFrame(() => resolve());
         });
       });
-
-const makeStarBounds = (result: StarResult) => {
-  const bounds = L.latLngBounds(
-    [
-      [result.center.lat, result.center.lng],
-      ...result.points.map((point) => [point.lat, point.lng])
-    ] as L.LatLngExpression[]
-  );
-  const outerPointRadiusMeters = Math.max(
-    result.radiusMeanMeters,
-    ...result.points.map((point) => point.distanceMeters)
-  );
-
-  [0, 90, 180, 270].forEach((bearing) => {
-    const edge = destinationPoint(result.center, outerPointRadiusMeters, bearing);
-    bounds.extend([edge.lat, edge.lng]);
-  });
-
-  return bounds;
-};
-
-const makeRadiusBounds = (center: LatLng, radiusMeters: number) => {
-  const bounds = L.latLngBounds([
-    [center.lat, center.lng]
-  ] as L.LatLngExpression[]);
-
-  [0, 90, 180, 270].forEach((bearing) => {
-    const edge = destinationPoint(center, radiusMeters, bearing);
-    bounds.extend([edge.lat, edge.lng]);
-  });
-
-  return bounds;
-};
 
 const makeAutoSolveKey = ({
   mode,
@@ -730,113 +348,6 @@ const makeAutoSolveKey = ({
     honeycombProfileKey
   ].join("|");
 
-const makeCenterIcon = () =>
-  L.divIcon({
-    className: "center-pin",
-    html: '<span class="center-pin__ring"></span><span class="center-pin__dot"></span>',
-    iconSize: [30, 30],
-    iconAnchor: [15, 15]
-  });
-
-const makeMagicSymbolHtml = (stroke: MagicSymbolStroke) =>
-  `<span class="${stroke.className}"><span class="magic-symbol__aura"></span><span class="magic-symbol__trail"></span><span class="magic-symbol__glyph"></span></span>`;
-
-const makeMagicSymbolIcon = (stroke: MagicSymbolStroke) =>
-  L.divIcon({
-    className: "magic-symbol-anchor",
-    html: makeMagicSymbolHtml(stroke),
-    iconSize: [0, 0],
-    iconAnchor: [0, 0]
-  });
-
-const makeHoneycombOrderIcon = (order: number, isCompleted = false) =>
-  L.divIcon({
-    className: `honeycomb-order-marker${
-      isCompleted ? " honeycomb-order-marker--completed" : ""
-    }`,
-    html: `<span class="honeycomb-order-marker__target"></span><span class="honeycomb-order-marker__number">${order}</span>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13]
-  });
-
-const downloadText = (filename: string, content: string, type: string) => {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-};
-
-const getExportDateStamp = () => new Date().toISOString().slice(0, 10);
-
-const downloadJson = (filename: string, value: unknown) => {
-  downloadText(
-    filename,
-    JSON.stringify(value, null, 2),
-    "application/json;charset=utf-8"
-  );
-};
-
-const formatMagicSpeed = (speed: MagicSpeed) => `${speed}x`;
-
-const parseMagicSpeed = (value: string): MagicSpeed => {
-  const numericValue = Number(value);
-  return (
-    MAGIC_SPEED_OPTIONS.find((option) => option === numericValue) ??
-    MAGIC_SPEED_OPTIONS[0]
-  );
-};
-
-const getMagicTimelineDurationMs = (
-  result: StarResult,
-  strokes: MagicCircleStroke[]
-) => {
-  const strokeEndMs = strokes.reduce(
-    (latestEndMs, stroke) =>
-      Math.max(latestEndMs, stroke.delayMs + stroke.durationMs),
-    0
-  );
-  const pointEndMs =
-    result.points.length > 0
-      ? MAGIC_POINT_DELAY_MS +
-        (result.points.length - 1) * MAGIC_POINT_STEP_MS +
-        MAGIC_POINT_DURATION_MS
-      : 0;
-
-  return Math.max(strokeEndMs, pointEndMs);
-};
-
-const getMagicDelayMs = (
-  delayMs: number,
-  durationMs: number,
-  direction: MagicPlaybackDirection,
-  timelineDurationMs: number,
-  timelinePositionMs: number
-) => {
-  const directedDelayMs =
-    direction === "reverse"
-      ? Math.max(0, timelineDurationMs - delayMs - durationMs)
-      : delayMs;
-  const directedPositionMs =
-    direction === "reverse"
-      ? Math.max(0, timelineDurationMs - timelinePositionMs)
-      : timelinePositionMs;
-
-  return directedDelayMs - directedPositionMs;
-};
-
-const clampMagicTimelinePosition = (positionMs: number, durationMs: number) =>
-  Math.max(0, Math.min(durationMs, positionMs));
-
-const getMagicBoundaryPosition = (
-  direction: MagicPlaybackDirection,
-  durationMs: number
-) => (direction === "reverse" ? durationMs : 0);
-
 const getSteppedOption = <T,>(
   options: readonly T[],
   value: T,
@@ -848,422 +359,6 @@ const getSteppedOption = <T,>(
     (currentIndex + step + options.length) % options.length
   ] as T;
 };
-
-const getLayerElement = (layer: L.Layer) => {
-  const pathLayer = layer as L.Layer & {
-    getElement?: () => HTMLElement | SVGElement | null;
-  };
-
-  return typeof pathLayer.getElement === "function"
-    ? pathLayer.getElement()
-    : null;
-};
-
-const setElementAnimationPlayback = (
-  element: HTMLElement | SVGElement,
-  playback: MagicPlayback,
-  direction: MagicPlaybackDirection
-) => {
-  const animationPlayState =
-    playback === "playing" ? "running" : "paused";
-  const animationDirection =
-    direction === "reverse" ? "reverse" : "normal";
-  const applyAnimationState = (target: HTMLElement | SVGElement) => {
-    target.style.animationPlayState = animationPlayState;
-    target.style.animationDirection = animationDirection;
-    if (direction === "reverse") {
-      target.style.animationFillMode = "both";
-    } else {
-      target.style.removeProperty("animation-fill-mode");
-    }
-  };
-
-  applyAnimationState(element);
-  element
-    .querySelectorAll<HTMLElement | SVGElement>("*")
-    .forEach(applyAnimationState);
-};
-
-const applyMagicStrokeTiming = (
-  layer: L.Layer,
-  stroke: MagicCircleStroke,
-  speed: MagicSpeed,
-  playback: MagicPlayback,
-  direction: MagicPlaybackDirection,
-  timelineDurationMs: number,
-  timelinePositionMs: number
-) => {
-  const element = getLayerElement(layer);
-  if (!element) return;
-
-  element.classList.add("magic-drawable");
-  if (stroke.kind !== "symbol" && element instanceof SVGElement) {
-    element.setAttribute("pathLength", "1");
-  }
-  element.style.setProperty(
-    "--magic-delay",
-    `${
-      getMagicDelayMs(
-        stroke.delayMs,
-        stroke.durationMs,
-        direction,
-        timelineDurationMs,
-        timelinePositionMs
-      ) / speed
-    }ms`
-  );
-  element.style.setProperty(
-    "--magic-duration",
-    `${stroke.durationMs / speed}ms`
-  );
-  if (stroke.kind === "symbol") {
-    element.style.setProperty("--magic-symbol-size", `${stroke.sizePx}px`);
-    element.style.setProperty("--magic-symbol-rotate", `${stroke.bearingDeg}deg`);
-    element.style.setProperty("--magic-symbol-color", stroke.color);
-    element.style.setProperty("--magic-symbol-accent", stroke.accent);
-    element.style.setProperty("--magic-symbol-pale", stroke.pale);
-    element.style.setProperty("--magic-symbol-opacity", `${stroke.opacity}`);
-    element.style.setProperty("--magic-symbol-phase", `${stroke.phase}deg`);
-  }
-  setElementAnimationPlayback(element, playback, direction);
-};
-
-const applyMagicMarkerTiming = (
-  element: SVGElement,
-  delayMs: number,
-  durationMs: number,
-  speed: MagicSpeed,
-  playback: MagicPlayback,
-  direction: MagicPlaybackDirection,
-  timelineDurationMs: number,
-  timelinePositionMs: number
-) => {
-  element.style.setProperty(
-    "--magic-delay",
-    `${
-      getMagicDelayMs(
-        delayMs,
-        durationMs,
-        direction,
-        timelineDurationMs,
-        timelinePositionMs
-      ) / speed
-    }ms`
-  );
-  element.style.setProperty("--magic-duration", `${durationMs / speed}ms`);
-  setElementAnimationPlayback(element, playback, direction);
-};
-
-const setMagicLayerPlayback = (
-  group: L.LayerGroup | null,
-  playback: MagicPlayback,
-  direction: MagicPlaybackDirection
-) => {
-  group?.eachLayer((layer) => {
-    const element = getLayerElement(layer);
-    if (!element?.classList.contains("magic-drawable")) return;
-    setElementAnimationPlayback(element, playback, direction);
-  });
-};
-
-const makeSectorPolygon = (
-  center: LatLng,
-  innerRadiusMeters: number,
-  outerRadiusMeters: number,
-  startDeg: number,
-  endDeg: number
-) => {
-  const points: L.LatLngExpression[] = [];
-  const span = normalizeDegrees(endDeg - startDeg) || 360;
-  const steps = Math.max(8, Math.ceil(span / 6));
-  const hasInnerRadius = innerRadiusMeters > 0;
-
-  if (!hasInnerRadius) {
-    points.push([center.lat, center.lng]);
-  }
-
-  for (let index = 0; index <= steps; index += 1) {
-    const bearing = startDeg + (span * index) / steps;
-    const point = destinationPoint(center, outerRadiusMeters, bearing);
-    points.push([point.lat, point.lng]);
-  }
-
-  if (hasInnerRadius) {
-    for (let index = steps; index >= 0; index -= 1) {
-      const bearing = startDeg + (span * index) / steps;
-      const point = destinationPoint(center, innerRadiusMeters, bearing);
-      points.push([point.lat, point.lng]);
-    }
-  } else {
-    points.push([center.lat, center.lng]);
-  }
-
-  return points;
-};
-
-const makeHoneycombLatLng = (center: LatLng, x: number, y: number) => {
-  const distanceMeters = Math.hypot(x, y);
-  const bearingDeg = normalizeDegrees((Math.atan2(x, y) * 180) / Math.PI);
-  return destinationPoint(center, distanceMeters, bearingDeg);
-};
-
-const makeHoneycombPolygon = (
-  center: LatLng,
-  cellRadiusMeters: number
-) =>
-  Array.from({ length: 6 }, (_, index) =>
-    destinationPoint(center, cellRadiusMeters, index * 60)
-  );
-
-const makeHoneycombPreviewCells = ({
-  mode,
-  center,
-  innerRadiusMeters,
-  outerRadiusMeters,
-  targetRadiusMeters,
-  rotationStepDeg,
-  hexCellRadiusMeters,
-  priorityRings,
-  rotationSpanDeg: targetRotationSpanDeg,
-  targetBands,
-  targetNodes
-}: HoneycombPreviewParams): HoneycombPreviewCell[] => {
-  const activeTargetBands =
-    targetBands.length > 0
-      ? targetBands
-      : [{ id: "perimeter", slots: mode, radius: "target" as const }];
-  const activeTargetNodes = targetNodes.filter(
-    (node) =>
-      Number.isFinite(node.radiusScale) &&
-      node.radiusScale > 0 &&
-      Number.isFinite(node.bearingDeg)
-  );
-  const rotationSpanDeg = Math.min(
-    360,
-    Math.max(
-      1,
-      activeTargetNodes.length > 0
-        ? targetRotationSpanDeg ?? 360 / mode
-        : Math.min(
-            ...activeTargetBands.map((band) => 360 / Math.max(1, band.slots))
-          )
-    )
-  );
-  const step = Math.max(1, Math.min(rotationSpanDeg, rotationStepDeg));
-  const cellRadiusMeters = normalizeHoneycombCellRadius(
-    outerRadiusMeters,
-    hexCellRadiusMeters
-  );
-  const rotations: number[] = [];
-  const seen = new Set<string>();
-  const cells: HoneycombPreviewCell[] = [];
-
-  for (let rotationDeg = 0; rotationDeg < rotationSpanDeg; rotationDeg += step) {
-    rotations.push(rotationDeg);
-  }
-
-  const makeTargetsForRotation = (rotationDeg: number) => {
-    if (activeTargetNodes.length > 0) {
-      return activeTargetNodes.map((node, index) => {
-        const targetBearing = normalizeDegrees(rotationDeg + node.bearingDeg);
-        const targetDistanceMeters = Math.max(
-          1,
-          targetRadiusMeters * node.radiusScale
-        );
-        return {
-          id: node.id,
-          label: node.label || `目標節點 ${index + 1}`,
-          point: makeHoneycombPlanarPoint(targetDistanceMeters, targetBearing)
-        };
-      });
-    }
-
-    return activeTargetBands.flatMap((band) => {
-      const bandSlots = Math.max(1, band.slots);
-      const slotWidth = 360 / bandSlots;
-      const bandRadiusMeters =
-        band.radius === "target"
-          ? targetRadiusMeters
-          : Math.max(1, outerRadiusMeters * band.radius);
-
-      return Array.from({ length: bandSlots }, (_, slotIndex) => {
-        const targetBearing = normalizeDegrees(
-          rotationDeg + (band.phaseOffsetDeg ?? 0) + slotWidth * slotIndex
-        );
-        return {
-          id: `${band.id}-${slotIndex + 1}`,
-          label: `${band.id} ${slotIndex + 1}`,
-          point: makeHoneycombPlanarPoint(bandRadiusMeters, targetBearing)
-        };
-      });
-    });
-  };
-
-  const addCellsForRotation = (
-    rotationDeg: number,
-    maxRing: number,
-    minRing = 0
-  ) => {
-    for (const target of makeTargetsForRotation(rotationDeg)) {
-      const targetCell = honeycombPointToCell(target.point, cellRadiusMeters);
-      const targetCenter = makeHoneycombLatLng(
-        center,
-        target.point.x,
-        target.point.y
-      );
-
-      for (let ring = minRing; ring <= maxRing; ring += 1) {
-        for (const cell of getHoneycombRing(targetCell, ring)) {
-          const key = getHoneycombCellKey(cell);
-          if (seen.has(key)) continue;
-
-          const planarCenter = getHoneycombCellCenterPlanar(
-            cell,
-            cellRadiusMeters
-          );
-          const distanceFromCenter = Math.hypot(
-            planarCenter.x,
-            planarCenter.y
-          );
-          const overlapsSearchRange =
-            distanceFromCenter <= outerRadiusMeters + cellRadiusMeters &&
-            distanceFromCenter >=
-              Math.max(0, innerRadiusMeters - cellRadiusMeters);
-          if (!overlapsSearchRange) continue;
-
-          seen.add(key);
-          const cellCenter = makeHoneycombLatLng(
-            center,
-            planarCenter.x,
-            planarCenter.y
-          );
-          cells.push({
-            key,
-            order: cells.length + 1,
-            ring,
-            center: cellCenter,
-            targetCenter,
-            targetLabel: target.label,
-            polygon: makeHoneycombPolygon(cellCenter, cellRadiusMeters)
-          });
-
-          if (cells.length >= MAX_HONEYCOMB_PREVIEW_CELLS) return cells;
-        }
-      }
-    }
-    return null;
-  };
-
-  if (rotations[0] !== undefined && addCellsForRotation(rotations[0], 0)) {
-    return cells;
-  }
-
-  for (const rotationDeg of rotations.slice(1)) {
-    if (addCellsForRotation(rotationDeg, 0)) return cells;
-  }
-
-  for (let ring = 1; ring <= priorityRings; ring += 1) {
-    for (const rotationDeg of rotations) {
-      if (addCellsForRotation(rotationDeg, ring, ring)) return cells;
-    }
-  }
-
-  return cells;
-};
-
-const makeHoneycombSearchBatches = (
-  params: HoneycombSearchBatchParams
-): HoneycombSearchBatch[] => {
-  const cells = makeHoneycombPreviewCells(params);
-  const batches: HoneycombSearchBatch[] = [];
-  const firstBatchSize = Math.min(params.initialCellCount, cells.length);
-
-  if (firstBatchSize > 0) {
-    batches.push({
-      cells: cells.slice(0, firstBatchSize),
-      isInitial: true,
-      label: `首批 ${firstBatchSize} 個目標蜂巢`
-    });
-  }
-
-  for (
-    let offset = firstBatchSize;
-    offset < cells.length;
-    offset += params.cellsPerBatch
-  ) {
-    const batchCells = cells.slice(
-      offset,
-      offset + params.cellsPerBatch
-    );
-    batches.push({
-      cells: batchCells,
-      isInitial: false,
-      label: `背景蜂巢 ${offset + 1}-${offset + batchCells.length}`
-    });
-  }
-
-  return batches;
-};
-
-const makeHoneycombSearchParams = ({
-  profile,
-  mode,
-  center,
-  innerRadiusMeters,
-  outerRadiusMeters,
-  targetRadiusMeters,
-  rotationStepDeg,
-  hexCellRadiusMeters
-}: {
-  profile: HoneycombSearchProfile;
-  mode: StarMode;
-  center: LatLng;
-  innerRadiusMeters: number;
-  outerRadiusMeters: number;
-  targetRadiusMeters: number;
-  rotationStepDeg: number;
-  hexCellRadiusMeters: number;
-}): HoneycombSearchBatchParams => ({
-  mode,
-  center,
-  innerRadiusMeters,
-  outerRadiusMeters,
-  targetRadiusMeters,
-  rotationStepDeg,
-  hexCellRadiusMeters,
-  priorityRings: profile.priorityRings,
-  rotationSpanDeg: profile.rotationSpanDeg,
-  targetBands: profile.targetBands,
-  targetNodes: profile.targetNodes,
-  initialCellCount: profile.initialCellCount,
-  cellsPerBatch: profile.cellsPerBatch
-});
-
-const getBoundsForPoints = (points: LatLng[]): OverpassBounds => {
-  const lats = points.map((point) => point.lat);
-  const lngs = points.map((point) => point.lng);
-  return {
-    south: Math.min(...lats),
-    west: Math.min(...lngs),
-    north: Math.max(...lats),
-    east: Math.max(...lngs)
-  };
-};
-
-const getHoneycombCellBounds = (cell: HoneycombPreviewCell) =>
-  getBoundsForPoints(cell.polygon);
-
-const filterPoisByHoneycombCells = (
-  pois: Poi[],
-  cellKeys: Set<string>,
-  cellRadiusMeters: number
-) =>
-  pois.filter((poi) => {
-    const point = makeHoneycombPlanarPoint(poi.distanceMeters, poi.bearingDeg);
-    return cellKeys.has(
-      getHoneycombCellKey(honeycombPointToCell(point, cellRadiusMeters))
-    );
-  });
 
 function App() {
   const appShellRef = useRef<HTMLElement | null>(null);
@@ -1471,7 +566,7 @@ function App() {
     initialSearchSession
       ? `已恢復上次搜尋資料：${initialSearchSession.results.length} 組結果、${initialSearchSession.pois.length} 筆座標。`
       : initialLastStar
-      ? `已載入上次暫存的${getStarModeLabel(initialLastStar.mode)}魔法陣。`
+      ? `已載入上次暫存的${starModeLabel(initialLastStar.mode)}魔法陣。`
       : "點擊地圖、搜尋地標或輸入座標來放置中心。"
   );
   const [error, setError] = useState("");
@@ -2435,7 +1530,7 @@ function App() {
       id: `${summary.id}-notice`,
       title:
         summary.resultCount > 0
-          ? `${getStarModeLabel(summary.mode)}魔法陣繪製完成`
+          ? `${starModeLabel(summary.mode)}魔法陣繪製完成`
           : "繪製完成，尚無魔法陣",
       message:
         summary.resultCount > 0

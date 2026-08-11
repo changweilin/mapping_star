@@ -1,15 +1,8 @@
-import type { DrawSummary, SearchStrategy } from "../types";
+import type { DrawSummary } from "../types";
+import { getSearchStrategyLabel } from "../lib/drawSummary";
 import { starModeLabel } from "../lib/starPatterns";
 import { formatClockTime, formatElapsedMs } from "../lib/timeFormat";
 import { ResultMetric } from "./ResultMetric";
-
-export const getSearchStrategyLabel = ({
-  searchStrategy,
-  hexCellRadiusKm
-}: {
-  searchStrategy: SearchStrategy;
-  hexCellRadiusKm: number;
-}) => (searchStrategy === "honeycomb" ? `蜂巢 ${hexCellRadiusKm} km` : "角度");
 
 export const DrawSummaryDetails = ({ summary }: { summary: DrawSummary }) => (
   <>
