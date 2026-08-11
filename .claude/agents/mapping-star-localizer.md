@@ -10,8 +10,4 @@ color: cyan
 
 You are the Mapping Star localization specialist.
 
-Preserve behavior while improving user-facing language. Keep identifiers, storage keys, OSM tags, Overpass filters, CSS classes, and XML tags stable unless explicitly asked to migrate them.
-
-Start by locating all affected copy with fast search. Keep visible labels, aria-labels, titles, status messages, and tests synchronized. If introducing multilingual support, create typed message keys and a Traditional Chinese fallback instead of scattering conditional strings through JSX.
-
-Validate TypeScript/JSX copy edits with `npm run build`; run relevant tests when category labels, settings, naming, exporters, or data contracts change.
+Improve user-facing language without changing behavior. Keep visible labels, aria-labels, titles, status text, and tests synchronized. Follow `.claude/skills/mapping-star-localization/SKILL.md` and the shared rules in `docs/ai/mapping-star-project-map.md`.

@@ -5,36 +5,34 @@ description: Design market-science analysis for Mapping Star using POI, category
 
 # Mapping Star Market Science
 
-## Workflow
+Available data and module layout: `docs/ai/mapping-star-project-map.md`.
 
-1. Read `docs/ai/mapping-star-project-map.md` before designing analytics on top of project data.
-2. Convert the user request into a testable market question: site selection, category density, competitor spacing, amenity mix, attraction/tourism context, transport access, or symbolic/star-fit opportunity.
-3. Identify available data and missing data. Mapping Star has OSM-derived POIs, categories, distances, bearings, star results, and user-selected radius bands; it does not include sales, foot traffic, demographics, rent, or live business performance unless new sources are supplied.
-4. Define metrics before implementation. Keep formulas simple, reproducible, and documented in code or tests.
-5. Keep analytics pure where possible, then wire results into UI, export, or reports.
+Convert the request into a testable market question — site selection, category density, competitor spacing, amenity mix, tourism context, transport access, or star-fit opportunity. Define metrics before implementing, and keep formulas simple, reproducible, and documented in code or tests.
+
+## Data Boundary
+
+Available: OSM-derived POIs, categories, distances, bearings, star results, user-selected radius bands. Not available unless the user supplies a source: sales, foot traffic, demographics, rent, live business performance.
 
 ## Suitable Metrics
 
 - POI count and density by category and radius band.
 - Category mix and concentration ratio inside the search band.
-- Nearest-neighbor distance and competitor spacing for selected categories.
-- Anchor proximity to transport, attractions, schools, medical, parks, water, or commercial high-rises.
+- Nearest-neighbor distance and competitor spacing per category.
+- Anchor proximity to transport, attractions, schools, medical, parks, water, commercial high-rises.
 - Directional distribution by bearing sector.
-- Star-result quality as a spatial pattern score, not as proof of commercial success.
-- Coverage or scarcity score compared with a user-provided benchmark.
+- Star-result quality as a spatial pattern score, never as proof of commercial success.
+- Coverage or scarcity score against a user-provided benchmark.
 
-## Scientific Guardrails
+## Guardrails
 
-- Label OSM data bias and missingness. Absence from Overpass is not absence in the real world.
-- Do not infer revenue, demographics, or demand from POI counts alone.
-- Separate descriptive metrics from recommendations.
-- Include confidence or caveat text when rankings are based on incomplete public data.
+- Absence from Overpass is not absence in the real world; label OSM bias and missingness.
+- Never infer revenue, demographics, or demand from POI counts alone.
+- Keep descriptive metrics separate from recommendations, and attach caveats when rankings rest on incomplete public data.
 - Make weights configurable when they encode market assumptions.
 
 ## Implementation Pattern
 
-- Put reusable analytics in a new or existing pure module under `src/lib/`.
-- Reuse `Poi`, `PoiCategory`, `StarResult`, and radius settings from `src/types.ts` and `src/lib/settings.ts`.
-- Add tests for metric formulas, empty inputs, tied rankings, malformed POI tags, and radius boundaries.
-- If adding UI, keep it dense and operational: sortable metrics, compact tables, clear caveats, and export-friendly output.
-- If adding exports, keep XML exporters intact and add a separate CSV/JSON path only when requested.
+- Put analytics in a pure module under `src/lib/`, reusing `Poi`, `PoiCategory`, `StarResult`, and radius settings.
+- Test metric formulas, empty inputs, tied rankings, malformed POI tags, and radius boundaries before wiring UI or exports.
+- UI stays dense and operational: sortable metrics, compact tables, visible caveats.
+- Leave XML exporters intact; add a CSV/JSON path only when requested.
