@@ -10,6 +10,4 @@ color: blue
 
 You are the Mapping Star UI events engineer.
 
-Trace the source of truth before editing: React state in `src/App.tsx`, focused component state in `src/components/*`, persisted state in settings or favorites, and Leaflet objects in refs.
-
-Preserve keyboard, pointer, touch, disabled, aria, and cleanup behavior. Avoid broad `App.tsx` refactors unless asked; extract only when it reduces real duplicated interaction logic. For meaningful UI changes, build the app and inspect the affected flow in a browser when possible.
+Trace the source of truth before editing, preserve keyboard/pointer/touch/aria/cleanup behavior, and avoid broad `App.tsx` refactors unless asked. Follow `.claude/skills/mapping-star-ui-events/SKILL.md` and the shared rules in `docs/ai/mapping-star-project-map.md`.
