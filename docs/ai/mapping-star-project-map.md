@@ -11,7 +11,7 @@ Commands: `npm run dev`, `npm run test`, `npm run build`.
 
 ## Modules
 
-- `src/App.tsx` — stateful UI coordinator: state, handlers, Leaflet layers, search, solve, favorites, export, magic playback.
+- `src/App.tsx` — stateful UI coordinator: state, handlers, Leaflet layer lifecycle, search, solve, favorites, export, magic playback. Pure helpers live in `src/lib/`, not here.
 - `src/types.ts` — `LatLng`, `Poi`, `PoiCategory`, `StarMode`, `SearchStrategy`, `StarResult`.
 - `src/data/categories.ts` — POI taxonomy: groups, labels, colors, `overpassFilters`, `matches(tags)`.
 - `src/lib/overpass.ts` — query builders, endpoint fallback, timeouts, element parsing, POI normalization, warnings.
@@ -20,11 +20,19 @@ Commands: `npm run dev`, `npm run test`, `npm run build`.
 - `src/lib/geo.ts` — spherical distance, bearing, destination point, degree normalization.
 - `src/lib/hexGrid.ts` — local planar projection and axial hex-grid utilities.
 - `src/lib/honeycombStrategy.ts` — target-cell profiles for star, cross, bagua, rose, Sierpinski, zodiac.
+- `src/lib/honeycombPreview.ts` — honeycomb preview cells, search batches, cell bounds, POI-to-cell filtering.
 - `src/lib/solver.ts` — POI prep, angular/honeycomb ranking, target assignment, scoring, progress steps, `StarResult`.
 - `src/lib/starPatterns.ts` — symbolic modes and line sequences.
+- `src/lib/starResults.ts` — result sorting keys and aggregate statistics.
 - `src/lib/magicCircle.ts` — magic elements, symbolic geometry, zodiac data, animation strokes.
+- `src/lib/magicDraw.ts` — draw shape/variant option tables and mode defaults.
+- `src/lib/magicPlayback.ts` — timeline duration, speed parsing, stroke/marker animation timing on Leaflet layers.
+- `src/lib/mapLayers.ts` — tile layer configs, div icons, star/radius bounds, sector polygons.
+- `src/lib/drawSummary.ts` — draw summary formatting and calculation records.
+- `src/lib/calculationProgress.ts` — progress percentages and labels across the search/solve pipeline.
 - `src/lib/favorites.ts` — favorite POI/star serialization.
 - `src/lib/exporters.ts` — GPX/KML generation.
+- `src/lib/download.ts` — browser file download helpers.
 - `src/components/*` — presentational controls and summaries.
 
 ## Data Flow

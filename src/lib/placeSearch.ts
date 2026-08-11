@@ -152,11 +152,3 @@ export const searchPlaces = async (
 
   return candidates;
 };
-
-export const searchPlace = async (
-  value: string,
-  options: SearchPlacesOptions = {}
-): Promise<PlaceSearchResult> => {
-  const [first] = await searchPlaces(value, options);
-  return first;
-};

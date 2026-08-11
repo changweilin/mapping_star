@@ -99,22 +99,38 @@ mapping_star/
 │   ├── apple-touch-icon.png
 │   └── logo.png              # 靜態圖示資源
 ├── src/
-│   ├── App.tsx               # 主要應用程式、地圖互動與 UI 狀態
+│   ├── App.tsx               # 應用狀態、事件處理與 Leaflet 圖層生命週期
 │   ├── main.tsx              # React 入口
 │   ├── styles.css            # 全站樣式與地圖/動畫視覺效果
 │   ├── types.ts              # 共用型別定義
+│   ├── components/           # 純呈現元件（結果清單、排序列、範圍控制等）
 │   ├── data/
 │   │   └── categories.ts     # POI 類別、Overpass 篩選條件與分類邏輯
-│   ├── lib/
-│   │   ├── exporters.ts      # GPX / KML 匯出
-│   │   ├── favorites.ts      # 收藏資料的 localStorage 存取
+│   ├── lib/                  # 無 UI 相依的純邏輯模組
 │   │   ├── geo.ts            # 距離、方位角與座標推算
-│   │   ├── lastStar.ts       # 最近一次星形結果快取
+│   │   ├── hexGrid.ts        # 區域平面投影與六角網格索引
+│   │   ├── solver.ts         # 星形解算核心
+│   │   ├── starPatterns.ts   # 星形模式與連線順序
+│   │   ├── starResults.ts    # 結果排序與統計
+│   │   ├── honeycombStrategy.ts   # 蜂巢搜尋目標剖面
+│   │   ├── honeycombPreview.ts    # 蜂巢預覽格、批次與 POI 篩選
 │   │   ├── magicCircle.ts    # 魔法陣筆畫、符號與動畫資料
+│   │   ├── magicDraw.ts      # 繪圖形狀與變體選項
+│   │   ├── magicPlayback.ts  # 動畫時間軸與播放控制
+│   │   ├── mapLayers.ts      # 底圖設定、圖示與地圖幾何
 │   │   ├── overpass.ts       # Overpass 查詢、容錯與 POI 解析
 │   │   ├── placeSearch.ts    # 座標解析與 Nominatim 地點搜尋
 │   │   ├── settings.ts       # 使用者設定正規化與保存
-│   │   └── solver.ts         # 五芒星/六芒星解算核心
+│   │   ├── searchSession.ts  # 搜尋工作階段的存檔與還原
+│   │   ├── favorites.ts      # 收藏資料的 localStorage 存取
+│   │   ├── archiveValidation.ts   # 存檔資料的欄位正規化
+│   │   ├── lastStar.ts       # 最近一次星形結果快取
+│   │   ├── drawSummary.ts    # 繪製摘要文字與計算紀錄
+│   │   ├── calculationProgress.ts # 各階段進度百分比與標籤
+│   │   ├── starNaming.ts     # 星形結果自動命名
+│   │   ├── timeFormat.ts     # 耗時與時間顯示格式
+│   │   ├── exporters.ts      # GPX / KML 匯出
+│   │   └── download.ts       # 瀏覽器檔案下載
 │   └── test/
 │       └── *.test.ts         # Vitest 單元測試
 ├── index.html                # Vite HTML 入口

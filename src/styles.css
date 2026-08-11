@@ -364,15 +364,6 @@ a {
   line-height: 1.15;
 }
 
-.magic-draw-actions .mode-row {
-  min-width: 0;
-  padding: 2px;
-}
-
-.magic-draw-actions .mode-row button {
-  min-height: 32px;
-}
-
 .magic-draw-actions .pattern-mode-select {
   justify-content: center;
 }
@@ -619,30 +610,6 @@ a {
   min-width: 0;
 }
 
-.range-field {
-  display: grid;
-  gap: 7px;
-}
-
-.range-label,
-.range-hints {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.range-label span,
-.range-hints span {
-  color: var(--ink-soft);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.range-label strong {
-  font-size: 13px;
-}
-
 .dual-range {
   position: relative;
   height: 32px;
@@ -833,10 +800,6 @@ a {
   border-radius: 6px;
 }
 
-.category-option--preview {
-  color: var(--ink-soft);
-}
-
 .category-option--locked {
   cursor: not-allowed;
   opacity: 0.68;
@@ -848,14 +811,6 @@ a {
 
 .category-option--locked .category-option__label {
   color: var(--ink-soft);
-}
-
-.category-option__input-ghost {
-  width: 16px;
-  height: 16px;
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  border-radius: 4px;
 }
 
 .category-option input {
@@ -885,28 +840,6 @@ a {
   height: 12px;
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
-}
-
-.mode-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  padding: 3px;
-  background: var(--segmented-bg);
-  border-radius: 7px;
-}
-
-.mode-row button {
-  min-height: 34px;
-  color: var(--ink-soft);
-  background: transparent;
-  border: 0;
-  border-radius: 5px;
-  font-weight: 800;
-}
-
-.mode-row button.selected {
-  color: var(--button-contrast);
-  background: var(--blue);
 }
 
 .map-layer-row {
@@ -1143,10 +1076,6 @@ a {
   min-width: 0;
 }
 
-.action-row--single {
-  grid-template-columns: 1fr;
-}
-
 .primary-button,
 .secondary-button,
 .download-grid button {
@@ -1291,7 +1220,6 @@ a {
 }
 
 .results-panel > *,
-.selected-result,
 .selected-poi-detail,
 .result-summary,
 .result-toolbar,
@@ -1502,12 +1430,6 @@ a {
   padding: 10px;
   background: var(--input-bg);
   border-top: 1px solid var(--line);
-}
-
-.selected-result {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
 }
 
 .draw-summary {
@@ -2973,10 +2895,6 @@ a {
 
   .search-row {
     grid-template-columns: minmax(0, 1fr) 38px;
-  }
-
-  .search-locate-button {
-    display: none;
   }
 
   .mobile-settings-tabs {
